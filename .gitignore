@@ -16,3 +16,23 @@ out/
 # Logs
 *.log
 
+# Build artifacts (VS)
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.tlb
+*.iobj
+*.ipdb
+*.res
+*.aps
+
+# User-specific files
+*.user
+*.suo
+*.sln.docstates
+
+# Windows image cache
+*.db
+Thumbs.db
