@@ -465,6 +465,8 @@ class PipeServer {
     std::lock_guard<std::mutex> lock(_mu);
     if (stateLine == _latestStateLine) return;
     _latestStateLine = std::move(stateLine);
+    // Keep only the freshest state payload to avoid queue growth during rapid updates.
+    _sendQueue.clear();
     _sendQueue.emplace_back(_latestStateLine);
     if (_sendEvent) ::SetEvent(_sendEvent);
   }
@@ -599,6 +601,8 @@ class PipeServer {
         if (!_latestStateLine.empty()) {
           (void)writeMsg(_latestStateLine);
         }
+        _sendQueue.clear();
+        if (_sendEvent) ::ResetEvent(_sendEvent);
       }
 
       // Per-connection loop.

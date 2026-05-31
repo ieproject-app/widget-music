@@ -10,6 +10,7 @@
 #include <commctrl.h>
 #include <docobj.h>
 #include <gdiplus.h>
+#include <dwmapi.h>
 
 #include <atomic>
 #include <array>
@@ -30,6 +31,7 @@
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "gdiplus.lib")
+#pragma comment(lib, "dwmapi.lib")
 
 namespace {
 
@@ -50,6 +52,7 @@ constexpr DWORD kMarqueeMaxFrameMs = 48;
 constexpr DWORD kMarqueeInitialPauseMs = 900;
 constexpr DWORD kMarqueeLoopPauseMs = 700;
 constexpr DWORD kVisibleAuditMinIntervalMs = 350;
+constexpr DWORD kVisibleAuditDuringMarqueeMinIntervalMs = 1200;
 constexpr DWORD kCompactTitleRevealMs = 3200;
 constexpr DWORD kStartupPipeDelayMs = 7000;
 constexpr int kFullPad = 16;
@@ -321,19 +324,30 @@ COLORREF SampleAdjacentTaskbarColor(HWND hwnd, COLORREF fallback) {
   HDC screen = ::GetDC(nullptr);
   if (!screen) return fallback;
 
+  // Sample dari area yang lebih jauh dan lebih banyak points
   const int y = (wr.top + wr.bottom) / 2;
+  const int yTop = wr.top + 4;
+  const int yBottom = wr.bottom - 4;
+  
   POINT points[] = {
-      {wr.left - 6, y},
-      {wr.left - 18, y},
-      {wr.left - 32, y},
-      {wr.right + 6, y},
-      {wr.right + 18, y},
+      // Horizontal samples (lebih jauh dari widget)
+      {wr.left - 40, y},
+      {wr.left - 60, y},
+      {wr.left - 80, y},
+      {wr.right + 40, y},
+      {wr.right + 60, y},
+      {wr.right + 80, y},
+      
+      // Vertical samples (untuk detect gradient)
+      {wr.left - 50, yTop},
+      {wr.left - 50, yBottom},
+      {wr.right + 50, yTop},
+      {wr.right + 50, yBottom},
   };
 
-  int sumR = 0;
-  int sumG = 0;
-  int sumB = 0;
+  int sumR = 0, sumG = 0, sumB = 0;
   int count = 0;
+  
   for (const auto& pt : points) {
     COLORREF c = ::GetPixel(screen, pt.x, pt.y);
     if (!IsReasonableThemeSample(c)) continue;
@@ -344,8 +358,50 @@ COLORREF SampleAdjacentTaskbarColor(HWND hwnd, COLORREF fallback) {
   }
 
   ::ReleaseDC(nullptr, screen);
+  
   if (count == 0) return fallback;
-  return RGB(sumR / count, sumG / count, sumB / count);
+  
+  // Average color
+  int r = sumR / count;
+  int g = sumG / count;
+  int b = sumB / count;
+  
+  // Slight darkening (3%) untuk match taskbar depth
+  r = (r * 97) / 100;
+  g = (g * 97) / 100;
+  b = (b * 97) / 100;
+  
+  return RGB(r, g, b);
+}
+
+COLORREF GetTaskbarColorViaDWM() {
+  BOOL enabled = FALSE;
+  if (FAILED(::DwmIsCompositionEnabled(&enabled)) || !enabled) {
+    return CLR_INVALID;
+  }
+  
+  // Get DWM colorization color
+  DWORD color = 0;
+  BOOL opaque = FALSE;
+  if (SUCCEEDED(::DwmGetColorizationColor(&color, &opaque))) {
+    // Extract RGB from ARGB
+    BYTE r = (color >> 16) & 0xFF;
+    BYTE g = (color >> 8) & 0xFF;
+    BYTE b = color & 0xFF;
+    
+    // Get taskbar base color
+    COLORREF baseColor = ::GetSysColor(COLOR_3DFACE);
+    
+    // Jika opaque, gunakan langsung
+    if (opaque) {
+      return RGB(r, g, b);
+    }
+    
+    // Jika transparent, blend dengan base (20% accent)
+    return Blend(baseColor, RGB(r, g, b), 20);
+  }
+  
+  return CLR_INVALID;
 }
 
 struct BandState {
@@ -461,6 +517,7 @@ class PipeClient {
 
   void SendJsonLine(std::string lineUtf8) {
     std::lock_guard<std::mutex> lock(_sendMu);
+    if (_sendQueue.size() >= kMaxQueuedPipeMessages) _sendQueue.pop_front();
     _sendQueue.emplace_back(std::move(lineUtf8));
     if (_sendEvent) ::SetEvent(_sendEvent);
   }
@@ -746,6 +803,7 @@ class PipeClient {
 
   std::mutex _sendMu;
   std::deque<std::string> _sendQueue;
+  static constexpr size_t kMaxQueuedPipeMessages = 24;
 
   BandState* _state = nullptr;
   std::mutex* _stateMu = nullptr;
@@ -1124,6 +1182,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       }
       case WM_SETTINGCHANGE:
       case WM_THEMECHANGED:
+      case WM_DWMCOLORIZATIONCOLORCHANGED:
         RequestBackgroundRefresh(true);
         ::InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
@@ -1575,7 +1634,14 @@ class WidgetMusicDeskband final : public IDeskBand2,
   COLORREF ResolveImmediateBackground(HWND hwnd) {
     if (IsHighContrast()) return ::GetSysColor(COLOR_BTNFACE);
     if (!_cachedBgValid && hwnd) {
-      _cachedBg = SampleAdjacentTaskbarColor(hwnd, ::GetSysColor(COLOR_3DFACE));
+      // Try DWM first untuk official taskbar color
+      COLORREF dwmColor = GetTaskbarColorViaDWM();
+      if (dwmColor != CLR_INVALID) {
+        _cachedBg = dwmColor;
+      } else {
+        // Fallback to sampling
+        _cachedBg = SampleAdjacentTaskbarColor(hwnd, ::GetSysColor(COLOR_3DFACE));
+      }
       _cachedBgValid = true;
     }
     return _cachedBgValid ? _cachedBg : ::GetSysColor(COLOR_3DFACE);
@@ -1784,7 +1850,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     DWORD nowTick = ::GetTickCount();
     if (_deferVisibleAuditUntilTick != 0 && nowTick < _deferVisibleAuditUntilTick) return;
-    if (_lastVisibleAuditTick != 0 && nowTick - _lastVisibleAuditTick < kVisibleAuditMinIntervalMs) return;
+    DWORD auditInterval = (_marqueeActive && IsFullMode()) ? kVisibleAuditDuringMarqueeMinIntervalMs
+                                                           : kVisibleAuditMinIntervalMs;
+    if (_lastVisibleAuditTick != 0 && nowTick - _lastVisibleAuditTick < auditInterval) return;
     _lastVisibleAuditTick = nowTick;
 
     RECT own{};
@@ -1797,6 +1865,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     int occludedInset = 0;
     bool canPromoteOverBlankTaskList = false;
+    const bool allowExpensiveScan = !(_marqueeActive && IsFullMode());
 
     for (HWND child = ::GetWindow(parent, GW_CHILD); child && child != _hwnd; child = ::GetWindow(child, GW_HWNDNEXT)) {
       if (!::IsWindowVisible(child)) continue;
@@ -1810,8 +1879,13 @@ class WidgetMusicDeskband final : public IDeskBand2,
       occludedInset = max(occludedInset, min(overlap.right, own.right) - own.left);
 
       std::wstring cls = WindowClassName(child);
-      if (IsTaskListClass(cls) && ScreenRegionLooksEmpty(overlap)) {
-        canPromoteOverBlankTaskList = true;
+      if (IsTaskListClass(cls)) {
+        if (allowExpensiveScan) {
+          if (ScreenRegionLooksEmpty(overlap)) canPromoteOverBlankTaskList = true;
+        } else if (_promotedOverBlankTaskList) {
+          // Keep the previous promotion decision while marquee is active to avoid expensive screen sampling.
+          canPromoteOverBlankTaskList = true;
+        }
       }
     }
 
@@ -2056,6 +2130,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _marqueeActive = false;
     _marqueeFramePending.store(false, std::memory_order_release);
     _marqueePauseUntilTick = 0;
+    _lastMarqueeQpc = 0;
+    _marqueeSubPxCarry = 0;
     if (resetOffset) {
       _marqueeOffsetPx = 0;
       _marqueeOffsetSubPx = 0;
@@ -2108,7 +2184,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _marqueeText = text;
       _marqueeOffsetPx = 0;
       _marqueeOffsetSubPx = 0;
+      _marqueeSubPxCarry = 0;
       _lastMarqueeTick = now;
+      _lastMarqueeQpc = 0;
       _marqueePauseUntilTick = active ? now + kMarqueeInitialPauseMs : 0;
     }
 
@@ -2119,6 +2197,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (active) {
       if (!_marqueeTimerOn && _hwnd) {
         _lastMarqueeTick = now;
+        _lastMarqueeQpc = 0;
         (void)StartMarqueeTimer();
       }
     } else if (_marqueeTimerOn) {
@@ -2140,15 +2219,44 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _lastMarqueeTick = now;
 
     if (_marqueePauseUntilTick != 0) {
-      if (now < _marqueePauseUntilTick) return;
+      if (now < _marqueePauseUntilTick) {
+        _lastMarqueeQpc = 0;
+        return;
+      }
       _marqueePauseUntilTick = 0;
       elapsed = 0;
+      _lastMarqueeQpc = 0;
     }
 
-    if (elapsed > kMarqueeMaxFrameMs) elapsed = kMarqueeMaxFrameMs;
-    _marqueeOffsetSubPx += static_cast<int>(kMarqueeSpeedPxPerSec * elapsed * 256);
-    int advance = _marqueeOffsetSubPx / 1000;
-    _marqueeOffsetSubPx %= 1000;
+    int64_t elapsedUs = static_cast<int64_t>(elapsed) * 1000;
+    if (_marqueeQpcFreq <= 0) {
+      LARGE_INTEGER freq{};
+      if (::QueryPerformanceFrequency(&freq) && freq.QuadPart > 0) {
+        _marqueeQpcFreq = freq.QuadPart;
+      }
+    }
+    if (_marqueeQpcFreq > 0) {
+      LARGE_INTEGER nowQpc{};
+      if (::QueryPerformanceCounter(&nowQpc)) {
+        if (_lastMarqueeQpc == 0) _lastMarqueeQpc = nowQpc.QuadPart;
+        int64_t deltaQpc = nowQpc.QuadPart - _lastMarqueeQpc;
+        _lastMarqueeQpc = nowQpc.QuadPart;
+        if (deltaQpc > 0) elapsedUs = (deltaQpc * 1000000) / _marqueeQpcFreq;
+      }
+    }
+
+    int64_t maxFrameUs = static_cast<int64_t>(kMarqueeMaxFrameMs) * 1000;
+    if (elapsedUs > maxFrameUs) elapsedUs = maxFrameUs;
+    if (elapsedUs <= 0) return;
+
+    _marqueeSubPxCarry += static_cast<int64_t>(kMarqueeSpeedPxPerSec) * 256 * elapsedUs;
+    int advanceSubPx = static_cast<int>(_marqueeSubPxCarry / 1000000);
+    _marqueeSubPxCarry %= 1000000;
+    if (advanceSubPx <= 0) return;
+
+    _marqueeOffsetSubPx += advanceSubPx;
+    int advance = _marqueeOffsetSubPx >> 8;
+    _marqueeOffsetSubPx &= 0xFF; // Keep only fractional part
     if (advance <= 0) return;
     _marqueeOffsetPx += advance;
 
@@ -2159,7 +2267,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
 
     if (_hwnd) {
-      ::RedrawWindow(_hwnd, &_textRc, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_NOCHILDREN);
+      // Async repaint - let Windows schedule the paint
+      ::InvalidateRect(_hwnd, &_textRc, FALSE);
     }
   }
 
@@ -2208,13 +2317,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       ::DeleteObject(br);
       bgSample = ::GetSysColor(COLOR_BTNFACE);
     } else {
-      if (_cachedBgValid) {
-        bgSample = _cachedBg;
-      } else {
-        bgSample = SampleAdjacentTaskbarColor(_hwnd, ::GetSysColor(COLOR_3DFACE));
-        _cachedBg = bgSample;
-        _cachedBgValid = true;
-      }
+      bgSample = ResolveImmediateBackground(_hwnd);
       bgFill = bgSample;
       HBRUSH br = ::CreateSolidBrush(bgFill);
       ::FillRect(mem, &repaintRc, br);
@@ -2637,6 +2740,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
   int _marqueeGapPx = 32;
   DWORD _lastMarqueeTick = 0;
   DWORD _marqueePauseUntilTick = 0;
+  int64_t _marqueeQpcFreq = 0;
+  int64_t _lastMarqueeQpc = 0;
+  int64_t _marqueeSubPxCarry = 0;
 
   HDC _marqueeStripDc = nullptr;
   HBITMAP _marqueeStripBmp = nullptr;
