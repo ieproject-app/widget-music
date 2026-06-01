@@ -16,7 +16,7 @@ set "ENABLE_SCRIPT=%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
 set "ENABLE_WRAPPER=%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1"
 
 if /i "%ACTION%"=="restart" (
-  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$killer = Start-Job -ScriptBlock { while ($true) { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } }; try { Stop-Process -Name WidgetMusicHost -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart skipenable; $code = $LASTEXITCODE } finally { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe }; exit $code"
+  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$sessionId = (Get-Process -Id $PID).SessionId; $killer = $null; if ($sessionId -ne 0) { $killer = Start-Job -ArgumentList $sessionId -ScriptBlock { param($sid) while ($true) { Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } } }; try { Get-Process WidgetMusicHost -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart skipenable; $code = $LASTEXITCODE } finally { if ($killer) { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue }; if ($sessionId -ne 0) { $explorerUp = $false; for ($i = 0; $i -lt 24; $i++) { if (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId }) { $explorerUp = $true; break }; Start-Process explorer.exe -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 350 }; if (-not $explorerUp) { Start-Process explorer.exe -ErrorAction SilentlyContinue } } }; exit $code"
   set "ERR=%ERRORLEVEL%"
   if not errorlevel 1 (
     echo [Register] Ensuring Widget Music is shown after Explorer restart...
@@ -38,7 +38,7 @@ if /i "%ACTION%"=="restart" (
 
     if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
       echo [Register] Retrying after one more Explorer restart...
-      "%PS%" -NoProfile -Command "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Start-Process explorer.exe" >nul 2>nul
+      "%PS%" -NoProfile -Command "$sid = (Get-Process -Id $PID).SessionId; Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; if ($sid -ne 0) { Start-Process explorer.exe -ErrorAction SilentlyContinue }" >nul 2>nul
       "%PS%" -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>nul
       for /l %%I in (1,1,10) do (
         call :run_enable
