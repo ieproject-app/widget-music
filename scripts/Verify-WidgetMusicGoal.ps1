@@ -11,6 +11,7 @@ $installScriptPath = Join-Path $root 'scripts\Install-WidgetMusic.cmd'
 $packageScriptPath = Join-Path $root 'scripts\Package-WidgetMusic.cmd'
 $registerScriptPath = Join-Path $root 'scripts\Register-WidgetMusic.cmd'
 $enableScriptPath = Join-Path $root 'scripts\Enable-WidgetMusicTaskbar.ps1'
+$enableWrapperPath = Join-Path $root 'scripts\Invoke-WidgetMusicTaskbarEnable.ps1'
 $deskbandDll = Join-Path $root "out\$Configuration\x64\WidgetMusicDeskband.dll"
 $hostExe = Join-Path $root "out\$Configuration\x64\WidgetMusicHost.exe"
 $distDir = Join-Path $root 'out\dist\WidgetMusic'
@@ -18,6 +19,7 @@ $distDll = Join-Path $distDir 'WidgetMusicDeskband.dll'
 $distHost = Join-Path $distDir 'WidgetMusicHost.exe'
 $distRegister = Join-Path $distDir 'Register-WidgetMusic.cmd'
 $distUnregister = Join-Path $distDir 'Unregister-WidgetMusic.cmd'
+$distEnableWrapper = Join-Path $distDir 'Invoke-WidgetMusicTaskbarEnable.ps1'
 
 $deskband = Get-Content -Raw -Path $deskbandPath
 $hostSource = Get-Content -Raw -Path $hostPath
@@ -25,6 +27,7 @@ $installScript = Get-Content -Raw -Path $installScriptPath
 $packageScript = Get-Content -Raw -Path $packageScriptPath
 $registerScript = Get-Content -Raw -Path $registerScriptPath
 $enableScript = Get-Content -Raw -Path $enableScriptPath
+$enableWrapperScript = Get-Content -Raw -Path $enableWrapperPath
 $failures = New-Object System.Collections.Generic.List[string]
 
 function Add-Failure {
@@ -88,10 +91,12 @@ Assert-FileExists 'Install script source' $installScriptPath
 Assert-FileExists 'Package script source' $packageScriptPath
 Assert-FileExists 'Register script source' $registerScriptPath
 Assert-FileExists 'Taskbar enable script source' $enableScriptPath
+Assert-FileExists 'Taskbar enable wrapper script source' $enableWrapperPath
 Assert-FileExists 'Clean package deskband DLL' $distDll
 Assert-FileExists 'Clean package host EXE' $distHost
 Assert-FileExists 'Clean package register script' $distRegister
 Assert-FileExists 'Clean package unregister script' $distUnregister
+Assert-FileExists 'Clean package enable wrapper script' $distEnableWrapper
 
 if (Test-Path -LiteralPath $distDir) {
   $distFiles = Get-ChildItem -LiteralPath $distDir -Recurse -File
@@ -143,17 +148,20 @@ Assert-MatchText 'Media Player window fallback does not enable fake controls' $h
 Assert-MatchText 'host fallback media keys require an actionable target' $hostSource '(?s)allowFallbackMediaKey.*?TryReadMediaPlayerNowPlayingFromUIA.*?if\s*\(allowFallbackMediaKey\s*&&\s*\(IsTrackCommand\(name\)\s*\|\|\s*allowPlaybackFallback\)\)'
 
 Assert-MatchText 'package script copies enable helper into runtime dist folder' $packageScript 'copy /y "%ROOT%\\scripts\\Enable-WidgetMusicTaskbar\.ps1" "%DIST%\\Enable-WidgetMusicTaskbar\.ps1"'
+Assert-MatchText 'package script copies non-blocking enable wrapper into runtime dist folder' $packageScript 'copy /y "%ROOT%\\scripts\\Invoke-WidgetMusicTaskbarEnable\.ps1" "%DIST%\\Invoke-WidgetMusicTaskbarEnable\.ps1"'
 Assert-MatchText 'runtime install restart path defers first enable attempt while explorer is down' $installScript '(?s)norestart\s+skipenable'
-Assert-MatchText 'runtime install restart path retries taskbar enable after explorer returns' $installScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?-File "%ENABLE_SCRIPT%"'
+Assert-MatchText 'runtime install restart path retries taskbar enable after explorer returns' $installScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?call :run_enable'
 Assert-MatchText 'runtime install supports explicit skip-enable mode for internal restart flow' $installScript '(?s)if /i not "%SKIP_ENABLE%"=="skipenable"'
 
 Assert-MatchText 'register restart path defers first enable attempt while explorer is down' $registerScript '(?s)norestart\s+skipenable'
-Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?Enable-WidgetMusicTaskbar\.ps1'
+Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?call :run_enable'
 Assert-MatchText 'register restart path performs one more explorer restart as last-resort recovery' $registerScript '(?s)Retrying after one more Explorer restart.*?Stop-Process -Name explorer.*?Start-Process explorer\.exe'
 Assert-MatchText 'register supports explicit skip-enable mode for internal restart flow' $registerScript '(?s)if /i not "%SKIP_ENABLE%"=="skipenable"'
 Assert-MatchText 'enable script uses retry helper for unstable explorer startup timing' $enableScript 'EnsureShownWithRetry'
 Assert-MatchText 'enable script runs multiple retry attempts by default' $enableScript 'EnsureShownWithRetry\(\$DeskBandClsid,\s*5,\s*5,\s*200\)'
 Assert-MatchText 'enable script emits detailed last-error telemetry for startup race diagnostics' $enableScript 'last_error_hr=0x\{6:X8\}; last_error=\{7\}'
+Assert-MatchText 'enable wrapper enforces timeout to avoid blocking prompt waits' $enableWrapperScript 'Wait-Job\s+-Id\s+\$job\.Id\s+-Timeout\s+\$TimeoutSeconds'
+Assert-MatchText 'enable wrapper returns timeout status for caller fallback flow' $enableWrapperScript 'exit 2'
 
 if ($failures.Count -gt 0) {
   Write-Host ''

@@ -49,7 +49,10 @@ Lalu aktifkan:
 
 `Right click taskbar > Toolbars > Widget Music`
 
-Catatan: kadang menu Toolbars perlu dibuka dua kali setelah register.
+Catatan:
+* Script akan mencoba auto-enable toolbar secara non-blocking (dengan timeout), jadi proses tidak akan macet jika dialog konfirmasi Windows muncul.
+* Jika toolbar belum terlihat, aktifkan manual dari menu Toolbars.
+* Kadang menu Toolbars perlu dibuka dua kali setelah register.
 
 ## Uninstall / Unregister
 
