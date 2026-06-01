@@ -2491,6 +2491,13 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return sz.cx;
   }
 
+  int ScaleForDpi(int value, int dpiY) const {
+    if (value <= 0) return value;
+    if (dpiY <= 0) dpiY = 96;
+    int scaled = ::MulDiv(value, dpiY, 96);
+    return max(1, scaled);
+  }
+
   void DrawTitleCardOverlay(HDC mem,
                             const RECT& clientRc,
                             HFONT baseFont,
@@ -2898,6 +2905,12 @@ class WidgetMusicDeskband final : public IDeskBand2,
     // Text
     std::wstring text = BuildPrimaryText(s);
     HFONT hTextFont = EnsureTextFont(hdc);
+    int dpiY = ::GetDeviceCaps(hdc, LOGPIXELSY);
+    if (dpiY <= 0) dpiY = 96;
+    const int playVisualSizePx = ScaleForDpi(kPlayVisualSize, dpiY);
+    const int sideGlyphSizePx = ScaleForDpi(kSideGlyphSize, dpiY);
+    const int glyphInsetPx = max(3, ScaleForDpi(3, dpiY));
+    const float ringWidthPx = highContrast ? 1.0f : max(kPlayRingWidth, static_cast<float>(dpiY) / 64.0f);
     HGDIOBJ oldFont = hTextFont ? ::SelectObject(mem, hTextFont) : nullptr;
     ::SetTextColor(mem, fg);
     RECT tr = _textRc;
@@ -3153,7 +3166,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       if (r.right <= r.left || r.bottom <= r.top) return;
 
       if (b.kind == 1) {
-        RECT visualRc = centerSquare(r, kPlayVisualSize);
+        RECT visualRc = centerSquare(r, playVisualSizePx);
         COLORREF ring = b.enabled ? accent : fgDisabled;
         if (b.pressed && b.enabled) {
           RECT fillRc{visualRc.left + 1, visualRc.top + 1, visualRc.right - 1, visualRc.bottom - 1};
@@ -3168,9 +3181,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
         }
 
         RECT ringRc{visualRc.left + 1, visualRc.top + 1, visualRc.right - 1, visualRc.bottom - 1};
-        drawEllipseOutline(ringRc, highContrast ? outline : ring, highContrast ? 1.0f : kPlayRingWidth);
+        drawEllipseOutline(ringRc, highContrast ? outline : ring, ringWidthPx);
 
-        RECT glyphRc{visualRc.left + 3, visualRc.top + 3, visualRc.right - 3, visualRc.bottom - 3};
+        RECT glyphRc{visualRc.left + glyphInsetPx, visualRc.top + glyphInsetPx, visualRc.right - glyphInsetPx,
+                     visualRc.bottom - glyphInsetPx};
         drawPlayPauseGlyph(glyphRc, s.playback == "playing", textCol);
         return;
       }
@@ -3196,7 +3210,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
         ::DeleteObject(outlinePen);
       }
 
-      RECT glyphRc = centerSquare(r, kSideGlyphSize);
+      RECT glyphRc = centerSquare(r, sideGlyphSizePx);
       drawSkipGlyph(glyphRc, b.kind == 2, textCol);
     };
 
