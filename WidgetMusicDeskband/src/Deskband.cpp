@@ -2248,7 +2248,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       int textRight = _btnPrev.rc.left - 8;
       int textLeft = visibleLeft + pad;
       if (textRight < textLeft) textRight = textLeft;
-      int seekTop = h - 5;
+      int seekTop = h - 8;
       if (seekTop < 14) seekTop = 14;
       _textRc = {textLeft, 1, textRight, seekTop - 2};
       if (_textRc.bottom <= _textRc.top) _textRc.bottom = _textRc.top + 1;
@@ -2307,7 +2307,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
 
     const DWORD now = ::GetTickCount();
-    const bool allowHoverTitle = !capturing && inText && !inButtons && now >= _titleCardSuppressUntilTick;
+    const bool allowHoverTitle = IsCompactMode() && !capturing && inText && !inButtons && now >= _titleCardSuppressUntilTick;
     if (allowHoverTitle) {
       if (!_hoverTitlePopupActive && !_compactTitleTimerOn) StartTitleHoverIntentTimer();
     } else {
@@ -2630,14 +2630,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
       return;
     }
 
-    RECT dirty = _textRc;
-    if (_seekRc.right > _seekRc.left) {
-      if (dirty.right > dirty.left) {
-        ::UnionRect(&dirty, &dirty, &_seekRc);
-      } else {
-        dirty = _seekRc;
-      }
-    }
+    RECT dirty = _seekRc;
+    if (dirty.right <= dirty.left) dirty = _textRc;
     if (dirty.right > dirty.left) {
       ::InvalidateRect(_hwnd, &dirty, FALSE);
     } else {
