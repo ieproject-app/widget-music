@@ -514,6 +514,7 @@ bool SameVisualBandState(const BandState& oldState, const BandState& nextState) 
 
 constexpr UINT WM_APP_STATE = WM_APP + 0x4A1;
 constexpr UINT WM_APP_MARQUEE = WM_APP + 0x4A2;
+constexpr UINT WM_APP_TITLECARD = WM_APP + 0x4A3;
 
 class PipeClient {
  public:
@@ -1352,6 +1353,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
         _marqueeFramePending.store(false, std::memory_order_release);
         OnMarqueeTimer();
         return 0;
+      case WM_APP_TITLECARD:
+        _titleCardFramePending.store(false, std::memory_order_release);
+        if (_titleCardAnimTimerOn) OnTitleCardAnimTimer();
+        return 0;
       case WM_PAINT:
         Paint(nullptr);
         return 0;
@@ -1524,8 +1529,51 @@ class WidgetMusicDeskband final : public IDeskBand2,
   void EnsureCompactTitlePopup() {}
 
   void StopTitleCardAnimTimer() {
-    if (_hwnd && _titleCardAnimTimerOn) ::KillTimer(_hwnd, kTitleCardAnimTimerId);
+    if (_titleCardAnimTimer) {
+      HANDLE timer = _titleCardAnimTimer;
+      _titleCardAnimTimer = nullptr;
+      (void)::DeleteTimerQueueTimer(nullptr, timer, INVALID_HANDLE_VALUE);
+    } else if (_hwnd && _titleCardAnimTimerOn) {
+      ::KillTimer(_hwnd, kTitleCardAnimTimerId);
+    }
     _titleCardAnimTimerOn = false;
+    _titleCardFramePending.store(false, std::memory_order_release);
+  }
+
+  static VOID CALLBACK TitleCardAnimTimerCallback(PVOID context, BOOLEAN) {
+    auto* self = static_cast<WidgetMusicDeskband*>(context);
+    if (!self) return;
+
+    HWND hwnd = self->_hwnd;
+    if (!hwnd) return;
+
+    bool alreadyPending = self->_titleCardFramePending.exchange(true, std::memory_order_acq_rel);
+    if (!alreadyPending) {
+      if (!::PostMessageW(hwnd, WM_APP_TITLECARD, 0, 0)) {
+        self->_titleCardFramePending.store(false, std::memory_order_release);
+      }
+    }
+  }
+
+  bool StartTitleCardAnimTimer() {
+    if (_titleCardAnimTimerOn) return true;
+    if (!_hwnd) return false;
+
+    _titleCardFramePending.store(false, std::memory_order_release);
+    HANDLE timer = nullptr;
+    if (::CreateTimerQueueTimer(&timer, nullptr, TitleCardAnimTimerCallback, this, kTitleCardAnimTimerMs,
+                                kTitleCardAnimTimerMs, WT_EXECUTEDEFAULT)) {
+      _titleCardAnimTimer = timer;
+      _titleCardAnimTimerOn = true;
+      return true;
+    }
+
+    if (::SetTimer(_hwnd, kTitleCardAnimTimerId, kTitleCardAnimTimerMs, nullptr) != 0) {
+      _titleCardAnimTimerOn = true;
+      return true;
+    }
+
+    return false;
   }
 
   void InvalidateTitleCardRegion(const RECT* previousCard = nullptr) {
@@ -1561,9 +1609,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _titleCardAnimFromAlpha = _titleCardAlpha;
     _titleCardAnimToAlpha = targetAlpha;
     _titleCardAnimStartTick = ::GetTickCount();
-    if (!_titleCardAnimTimerOn && ::SetTimer(_hwnd, kTitleCardAnimTimerId, kTitleCardAnimTimerMs, nullptr) != 0) {
-      _titleCardAnimTimerOn = true;
-    }
+    if (!_titleCardAnimTimerOn) (void)StartTitleCardAnimTimer();
     if (_titleCardAnimFromAlpha == _titleCardAnimToAlpha) {
       _titleCardAlpha = targetAlpha;
       StopTitleCardAnimTimer();
@@ -2936,13 +2982,16 @@ class WidgetMusicDeskband final : public IDeskBand2,
       Gdiplus::Graphics graphics(mem);
       if (gpReady) {
         graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+        graphics.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+        graphics.SetCompositingMode(Gdiplus::CompositingModeSourceOver);
+        graphics.SetCompositingQuality(Gdiplus::CompositingQualityHighQuality);
       }
 
     auto fillEllipseColor = [&](const RECT& r, COLORREF fillColor, COLORREF outlineColor, float outlineWidth) {
       if (gpReady) {
         Gdiplus::SolidBrush brush(GpColor(fillColor));
         Gdiplus::Pen pen(GpColor(outlineColor), outlineWidth);
+        pen.SetLineJoin(Gdiplus::LineJoinRound);
         Gdiplus::RectF rf(static_cast<Gdiplus::REAL>(r.left), static_cast<Gdiplus::REAL>(r.top),
                           static_cast<Gdiplus::REAL>(r.right - r.left),
                           static_cast<Gdiplus::REAL>(r.bottom - r.top));
@@ -2964,6 +3013,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     auto drawEllipseOutline = [&](const RECT& r, COLORREF outlineColor, float outlineWidth) {
       if (gpReady) {
         Gdiplus::Pen pen(GpColor(outlineColor), outlineWidth);
+        pen.SetLineJoin(Gdiplus::LineJoinRound);
         Gdiplus::RectF rf(static_cast<Gdiplus::REAL>(r.left), static_cast<Gdiplus::REAL>(r.top),
                           static_cast<Gdiplus::REAL>(r.right - r.left),
                           static_cast<Gdiplus::REAL>(r.bottom - r.top));
@@ -3241,6 +3291,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
   bool _hoverTitlePopupActive = false;
   bool _compactTitleTimerOn = false;
   bool _titleCardAnimTimerOn = false;
+  HANDLE _titleCardAnimTimer = nullptr;
+  std::atomic<bool> _titleCardFramePending{false};
   bool _titleHoverIntentTimerOn = false;
   bool _progressTimerOn = false;
   bool _pipeStartTimerOn = false;
