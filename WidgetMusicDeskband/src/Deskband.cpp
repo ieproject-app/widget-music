@@ -2825,7 +2825,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     RECT textRcClipped{};
     const bool hasTextRc = ::IntersectRect(&textRcClipped, &_textRc, &rc) != FALSE;
     const bool textOnlyPaint = !hdcIn && hasTextRc && RectContains(textRcClipped, dirtyRc);
-    const RECT repaintRc = textOnlyPaint ? textRcClipped : rc;
+    const RECT repaintRc = hdcIn ? rc : dirtyRc;
 
     if (!EnsureBackBuffer(hdc, w, h)) {
       if (!hdcIn) ::EndPaint(_hwnd, &ps);
@@ -2834,6 +2834,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     HDC mem = _backDc;
     void* dibBits = _backBits;
+    int savedDc = ::SaveDC(mem);
+    if (savedDc != 0) {
+      ::IntersectClipRect(mem, repaintRc.left, repaintRc.top, repaintRc.right, repaintRc.bottom);
+    }
 
     // Background
     bool highContrast = IsHighContrast();
@@ -3221,6 +3225,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     DrawTitleCardOverlay(mem, rc, hTextFont, panelFill, fg, accent, highContrast, lightForeground);
 
+    if (savedDc != 0) ::RestoreDC(mem, savedDc);
+
     if (dibBits) {
       auto* pixels = static_cast<uint32_t*>(dibBits);
       RECT alphaRc = repaintRc;
@@ -3236,8 +3242,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       }
     }
 
-    RECT blitRc = textOnlyPaint ? repaintRc : rc;
-    if (!hdcIn && !textOnlyPaint) blitRc = dirtyRc;
+    RECT blitRc = hdcIn ? rc : dirtyRc;
     ::BitBlt(hdc, blitRc.left, blitRc.top, blitRc.right - blitRc.left, blitRc.bottom - blitRc.top, mem,
              blitRc.left, blitRc.top, SRCCOPY);
     if (oldFont) ::SelectObject(mem, oldFont);
