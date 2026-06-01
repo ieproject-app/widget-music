@@ -2541,6 +2541,20 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return sz.cx;
   }
 
+  int MeasurePrimaryTextWidth(HDC hdc, HFONT font, const std::wstring& text) {
+    if (!hdc || !font || text.empty()) return 0;
+    int dpiY = ::GetDeviceCaps(hdc, LOGPIXELSY);
+    if (dpiY <= 0) dpiY = 96;
+    if (_cachedPrimaryMeasureDpiY == dpiY && _cachedPrimaryMeasureText == text) {
+      return _cachedPrimaryMeasureWidth;
+    }
+    int width = MeasureTextWidth(hdc, font, text);
+    _cachedPrimaryMeasureText = text;
+    _cachedPrimaryMeasureDpiY = dpiY;
+    _cachedPrimaryMeasureWidth = width;
+    return width;
+  }
+
   int ScaleForDpi(int value, int dpiY) const {
     if (value <= 0) return value;
     if (dpiY <= 0) dpiY = 96;
@@ -2970,7 +2984,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     RECT tr = _textRc;
     if (tr.right > tr.left) {
       const int areaWidth = tr.right - tr.left;
-      const int textWidth = MeasureTextWidth(mem, hTextFont, text);
+      const int textWidth = MeasurePrimaryTextWidth(mem, hTextFont, text);
       const bool allowMarquee =
           IsFullMode() && s.playback == "playing" && textWidth > (areaWidth + 8) && !_hoverTitlePopupActive;
       ConfigureMarquee(allowMarquee, textWidth, areaWidth, text);
@@ -3374,6 +3388,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
   std::wstring _titleCardBadge;
   std::wstring _lastPrimaryText;
   std::wstring _lastTrackPopupText;
+  std::wstring _cachedPrimaryMeasureText;
+  int _cachedPrimaryMeasureWidth = 0;
+  int _cachedPrimaryMeasureDpiY = 0;
   BandDisplayMode _bandMode = BandDisplayMode::Compact;
 
   bool _marqueeTimerOn = false;

@@ -97,6 +97,7 @@ Assert-MatchText 'play visual circle is smaller than hit target' $deskband 'cons
 Assert-MatchText 'play ring is visually lighter' $deskband 'constexpr\s+float\s+kPlayRingWidth\s*=\s*1\.5f;'
 Assert-MatchText 'side glyphs use compact vector size' $deskband 'constexpr\s+int\s+kSideGlyphSize\s*=\s*19;'
 Assert-MatchText 'play/pause visual scales with monitor DPI' $deskband '(?s)ScaleForDpi\(kPlayVisualSize,\s*dpiY\).*?ScaleForDpi\(kSideGlyphSize,\s*dpiY\).*?ringWidthPx'
+Assert-MatchText 'full-mode text width measurement is cached for marquee frames' $deskband '(?s)MeasurePrimaryTextWidth\(.*?_cachedPrimaryMeasureDpiY.*?_cachedPrimaryMeasureText.*?_cachedPrimaryMeasureWidth'
 Assert-MatchText 'marquee uses speed-based native timing' $deskband 'constexpr\s+int\s+kMarqueeSpeedPxPerSec\s*=\s*46;'
 Assert-MatchText 'marquee caps delayed frames' $deskband 'constexpr\s+DWORD\s+kMarqueeMaxFrameMs\s*=\s*32;'
 Assert-MatchText 'marquee uses tighter frame cadence' $deskband 'constexpr\s+UINT\s+kMarqueeTimerMs\s*=\s*12;'
