@@ -19,13 +19,27 @@ if /i "%ACTION%"=="restart" (
   if not errorlevel 1 (
     echo [Register] Ensuring Widget Music is shown after Explorer restart...
     set "ENABLE_OK="
-    for /l %%I in (1,1,6) do (
+    for /l %%I in (1,1,10) do (
       "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
       if not errorlevel 1 (
         set "ENABLE_OK=1"
         goto :after_restart_enable
       )
       "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+    )
+
+    if not defined ENABLE_OK (
+      echo [Register] Retrying after one more Explorer restart...
+      "%PS%" -NoProfile -Command "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Start-Process explorer.exe" >nul 2>nul
+      "%PS%" -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>nul
+      for /l %%I in (1,1,10) do (
+        "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
+        if not errorlevel 1 (
+          set "ENABLE_OK=1"
+          goto :after_restart_enable
+        )
+        "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+      )
     )
 :after_restart_enable
     if not defined ENABLE_OK (

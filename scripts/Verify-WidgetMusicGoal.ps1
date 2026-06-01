@@ -137,7 +137,8 @@ Assert-MatchText 'Media Player window fallback does not enable fake controls' $h
 Assert-MatchText 'host fallback media keys require an actionable target' $hostSource '(?s)allowFallbackMediaKey.*?TryReadMediaPlayerNowPlayingFromUIA.*?if\s*\(allowFallbackMediaKey\s*&&\s*\(IsTrackCommand\(name\)\s*\|\|\s*allowPlaybackFallback\)\)'
 
 Assert-MatchText 'register restart path defers first enable attempt while explorer is down' $registerScript '(?s)norestart\s+skipenable'
-Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,6\).*?Enable-WidgetMusicTaskbar\.ps1'
+Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?Enable-WidgetMusicTaskbar\.ps1'
+Assert-MatchText 'register restart path performs one more explorer restart as last-resort recovery' $registerScript '(?s)Retrying after one more Explorer restart.*?Stop-Process -Name explorer.*?Start-Process explorer\.exe'
 Assert-MatchText 'register supports explicit skip-enable mode for internal restart flow' $registerScript '(?s)if /i not "%SKIP_ENABLE%"=="skipenable"'
 Assert-MatchText 'enable script uses retry helper for unstable explorer startup timing' $enableScript 'EnsureShownWithRetry'
 Assert-MatchText 'enable script runs multiple retry attempts by default' $enableScript 'EnsureShownWithRetry\(\$DeskBandClsid,\s*5,\s*5,\s*200\)'
