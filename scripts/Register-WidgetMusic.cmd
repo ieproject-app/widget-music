@@ -46,6 +46,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo [Register] Enabling Widget Music on taskbar...
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
+if errorlevel 1 (
+  echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar > Toolbars > Widget Music.
+)
+
 if /i "%ACTION%"=="restart" (
   echo [Register] Restarting Explorer...
   "%PS%" -NoProfile -Command "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe" >nul 2>nul
