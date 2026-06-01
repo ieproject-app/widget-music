@@ -1826,9 +1826,11 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _progressSnapshotTick.store(current.has_timeline ? ::GetTickCount() : 0, std::memory_order_release);
     std::wstring primary = BuildPrimaryText(current);
     std::wstring popupTrack = BuildTrackPopupText(current);
-    if (IsCompactMode() && primary != _lastPrimaryText && !primary.empty()) {
+    const bool primaryChanged = primary != _lastPrimaryText;
+    const bool popupTrackChanged = popupTrack != _lastTrackPopupText;
+    if (IsCompactMode() && primaryChanged && !primary.empty()) {
       StartCompactTitleReveal(primary);
-    } else if (!popupTrack.empty() && !_lastTrackPopupText.empty() && popupTrack != _lastTrackPopupText) {
+    } else if (IsCompactMode() && !popupTrack.empty() && !_lastTrackPopupText.empty() && popupTrackChanged) {
       StartCompactTitleReveal(popupTrack);
     }
     _lastPrimaryText = primary;
@@ -1836,8 +1838,56 @@ class WidgetMusicDeskband final : public IDeskBand2,
     UpdateProgressTimerState(current);
 
     if (_hwnd) {
-      Layout();
-      ::InvalidateRect(_hwnd, nullptr, FALSE);
+      auto addRect = [](RECT* dirty, bool* hasDirty, RECT rr) {
+        if (rr.right <= rr.left || rr.bottom <= rr.top) return;
+        if (!*hasDirty) {
+          *dirty = rr;
+          *hasDirty = true;
+        } else {
+          ::UnionRect(dirty, dirty, &rr);
+        }
+      };
+
+      const bool prevEnabled = _btnPrev.enabled;
+      const bool playEnabled = _btnPlayPause.enabled;
+      const bool nextEnabled = _btnNext.enabled;
+      const bool actionableMedia = current.connected && current.has_session;
+      _btnPrev.enabled = actionableMedia && current.can_prev;
+      _btnPlayPause.enabled = actionableMedia && current.can_play_pause;
+      _btnNext.enabled = actionableMedia && current.can_next;
+      _btnPrev.kind = 0;
+      _btnPlayPause.kind = 1;
+      _btnNext.kind = 2;
+      const bool buttonsChanged =
+          (prevEnabled != _btnPrev.enabled) || (playEnabled != _btnPlayPause.enabled) || (nextEnabled != _btnNext.enabled);
+
+      RECT dirty{};
+      bool hasDirty = false;
+      if (IsFullMode()) {
+        addRect(&dirty, &hasDirty, _seekRc);
+        if (primaryChanged) addRect(&dirty, &hasDirty, _textRc);
+      } else if (primaryChanged || popupTrackChanged) {
+        addRect(&dirty, &hasDirty, _textRc);
+      }
+
+      if (buttonsChanged) {
+        RECT btnDirty = _btnPrev.rc;
+        ::UnionRect(&btnDirty, &btnDirty, &_btnPlayPause.rc);
+        ::UnionRect(&btnDirty, &btnDirty, &_btnNext.rc);
+        ::InflateRect(&btnDirty, 2, 2);
+        addRect(&dirty, &hasDirty, btnDirty);
+      }
+
+      if (!hasDirty) {
+        if (IsFullMode()) addRect(&dirty, &hasDirty, _seekRc);
+        addRect(&dirty, &hasDirty, _textRc);
+      }
+
+      if (hasDirty) {
+        ::InvalidateRect(_hwnd, &dirty, FALSE);
+      } else {
+        ::InvalidateRect(_hwnd, nullptr, FALSE);
+      }
     }
   }
 
