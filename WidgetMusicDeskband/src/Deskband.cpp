@@ -49,11 +49,11 @@ constexpr UINT_PTR kPipeStartTimerId = 0x4D5B;
 constexpr UINT_PTR kProgressTimerId = 0x4D5C;
 constexpr UINT_PTR kTitleCardAnimTimerId = 0x4D5D;
 constexpr UINT_PTR kTitleHoverIntentTimerId = 0x4D5E;
-constexpr UINT kMarqueeTimerMs = 16;
+constexpr UINT kMarqueeTimerMs = 12;
 constexpr UINT kProgressTimerMs = 1000;
 constexpr UINT kTitleCardAnimTimerMs = 16;
-constexpr int kMarqueeSpeedPxPerSec = 40;
-constexpr DWORD kMarqueeMaxFrameMs = 48;
+constexpr int kMarqueeSpeedPxPerSec = 46;
+constexpr DWORD kMarqueeMaxFrameMs = 32;
 constexpr DWORD kMarqueeInitialPauseMs = 900;
 constexpr DWORD kMarqueeLoopPauseMs = 700;
 constexpr DWORD kVisibleAuditMinIntervalMs = 350;
@@ -1562,7 +1562,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _titleCardFramePending.store(false, std::memory_order_release);
     HANDLE timer = nullptr;
     if (::CreateTimerQueueTimer(&timer, nullptr, TitleCardAnimTimerCallback, this, kTitleCardAnimTimerMs,
-                                kTitleCardAnimTimerMs, WT_EXECUTEDEFAULT)) {
+                                kTitleCardAnimTimerMs, WT_EXECUTEINTIMERTHREAD)) {
       _titleCardAnimTimer = timer;
       _titleCardAnimTimerOn = true;
       return true;
@@ -2685,7 +2685,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _marqueeFramePending.store(false, std::memory_order_release);
     HANDLE timer = nullptr;
     if (::CreateTimerQueueTimer(&timer, nullptr, MarqueeTimerCallback, this, kMarqueeTimerMs, kMarqueeTimerMs,
-                                WT_EXECUTEDEFAULT)) {
+                                WT_EXECUTEINTIMERTHREAD)) {
       _marqueeTimer = timer;
       _marqueeTimerOn = true;
       return true;
