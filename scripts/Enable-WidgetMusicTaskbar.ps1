@@ -42,6 +42,69 @@ public static class WidgetMusicTrayDeskBand
             if (api != null) Marshal.ReleaseComObject(api);
         }
     }
+
+    public static string EnsureShownWithRetry(string deskBandClsid, int attempts, int pollCount, int pollDelayMs)
+    {
+        if (attempts < 1) attempts = 1;
+        if (pollCount < 1) pollCount = 1;
+        if (pollDelayMs < 0) pollDelayMs = 0;
+
+        int lastBefore = 1;
+        int lastRefresh = unchecked((int)0x80004005);
+        int lastShow = unchecked((int)0x80004005);
+        int lastAfter = 1;
+        int lastRefreshAfter = unchecked((int)0x80004005);
+        int usedAttempts = 0;
+
+        for (int attempt = 1; attempt <= attempts; attempt++)
+        {
+            usedAttempts = attempt;
+            Guid trayClsid = new Guid("E6442437-6C68-4F52-94DD-2CFED267EFB9");
+            Guid bandClsid = new Guid(deskBandClsid);
+            Type t = Type.GetTypeFromCLSID(trayClsid, true);
+            ITrayDeskBand api = (ITrayDeskBand)Activator.CreateInstance(t);
+            try
+            {
+                lastBefore = api.IsDeskBandShown(ref bandClsid);
+                lastRefresh = api.DeskBandRegistrationChanged();
+                lastShow = api.ShowDeskBand(ref bandClsid);
+                lastAfter = api.IsDeskBandShown(ref bandClsid);
+                lastRefreshAfter = api.DeskBandRegistrationChanged();
+
+                if (lastAfter == 0)
+                {
+                    break;
+                }
+
+                for (int poll = 0; poll < pollCount; poll++)
+                {
+                    if (pollDelayMs > 0)
+                    {
+                        System.Threading.Thread.Sleep(pollDelayMs);
+                    }
+
+                    lastAfter = api.IsDeskBandShown(ref bandClsid);
+                    if (lastAfter == 0)
+                    {
+                        break;
+                    }
+                }
+
+                if (lastAfter == 0)
+                {
+                    break;
+                }
+            }
+            finally
+            {
+                if (api != null) Marshal.ReleaseComObject(api);
+            }
+        }
+
+        return string.Format(
+            "attempts={0}; shown_before=0x{1:X8}; refresh=0x{2:X8}; show=0x{3:X8}; shown_after=0x{4:X8}; refresh_after=0x{5:X8}",
+            usedAttempts, lastBefore, lastRefresh, lastShow, lastAfter, lastRefreshAfter);
+    }
 }
 '@
 
@@ -50,7 +113,7 @@ if (-not ('WidgetMusicTrayDeskBand' -as [type])) {
 }
 
 try {
-  $result = [WidgetMusicTrayDeskBand]::EnsureShown($DeskBandClsid)
+  $result = [WidgetMusicTrayDeskBand]::EnsureShownWithRetry($DeskBandClsid, 5, 5, 200)
   Write-Host "[Enable] $result"
   if ($result -match 'shown_after=0x00000000') {
     Write-Host '[Enable] Widget Music is now shown on the taskbar.'
