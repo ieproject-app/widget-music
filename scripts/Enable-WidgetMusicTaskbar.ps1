@@ -55,55 +55,69 @@ public static class WidgetMusicTrayDeskBand
         int lastAfter = 1;
         int lastRefreshAfter = unchecked((int)0x80004005);
         int usedAttempts = 0;
+        int lastErrorHr = 0;
+        string lastError = string.Empty;
 
         for (int attempt = 1; attempt <= attempts; attempt++)
         {
             usedAttempts = attempt;
-            Guid trayClsid = new Guid("E6442437-6C68-4F52-94DD-2CFED267EFB9");
-            Guid bandClsid = new Guid(deskBandClsid);
-            Type t = Type.GetTypeFromCLSID(trayClsid, true);
-            ITrayDeskBand api = (ITrayDeskBand)Activator.CreateInstance(t);
             try
             {
-                lastBefore = api.IsDeskBandShown(ref bandClsid);
-                lastRefresh = api.DeskBandRegistrationChanged();
-                lastShow = api.ShowDeskBand(ref bandClsid);
-                lastAfter = api.IsDeskBandShown(ref bandClsid);
-                lastRefreshAfter = api.DeskBandRegistrationChanged();
-
-                if (lastAfter == 0)
+                Guid trayClsid = new Guid("E6442437-6C68-4F52-94DD-2CFED267EFB9");
+                Guid bandClsid = new Guid(deskBandClsid);
+                Type t = Type.GetTypeFromCLSID(trayClsid, true);
+                ITrayDeskBand api = (ITrayDeskBand)Activator.CreateInstance(t);
+                try
                 {
-                    break;
-                }
+                    lastBefore = api.IsDeskBandShown(ref bandClsid);
+                    lastRefresh = api.DeskBandRegistrationChanged();
+                    lastShow = api.ShowDeskBand(ref bandClsid);
+                    lastAfter = api.IsDeskBandShown(ref bandClsid);
+                    lastRefreshAfter = api.DeskBandRegistrationChanged();
 
-                for (int poll = 0; poll < pollCount; poll++)
-                {
-                    if (pollDelayMs > 0)
+                    if (lastAfter == 0)
                     {
-                        System.Threading.Thread.Sleep(pollDelayMs);
+                        break;
                     }
 
-                    lastAfter = api.IsDeskBandShown(ref bandClsid);
+                    for (int poll = 0; poll < pollCount; poll++)
+                    {
+                        if (pollDelayMs > 0)
+                        {
+                            System.Threading.Thread.Sleep(pollDelayMs);
+                        }
+
+                        lastAfter = api.IsDeskBandShown(ref bandClsid);
+                        if (lastAfter == 0)
+                        {
+                            break;
+                        }
+                    }
+
                     if (lastAfter == 0)
                     {
                         break;
                     }
                 }
-
-                if (lastAfter == 0)
+                finally
                 {
-                    break;
+                    if (api != null) Marshal.ReleaseComObject(api);
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                if (api != null) Marshal.ReleaseComObject(api);
+                lastErrorHr = Marshal.GetHRForException(ex);
+                lastError = ex.Message;
+                if (pollDelayMs > 0)
+                {
+                    System.Threading.Thread.Sleep(pollDelayMs);
+                }
             }
         }
 
         return string.Format(
-            "attempts={0}; shown_before=0x{1:X8}; refresh=0x{2:X8}; show=0x{3:X8}; shown_after=0x{4:X8}; refresh_after=0x{5:X8}",
-            usedAttempts, lastBefore, lastRefresh, lastShow, lastAfter, lastRefreshAfter);
+            "attempts={0}; shown_before=0x{1:X8}; refresh=0x{2:X8}; show=0x{3:X8}; shown_after=0x{4:X8}; refresh_after=0x{5:X8}; last_error_hr=0x{6:X8}; last_error={7}",
+            usedAttempts, lastBefore, lastRefresh, lastShow, lastAfter, lastRefreshAfter, lastErrorHr, lastError);
     }
 }
 '@

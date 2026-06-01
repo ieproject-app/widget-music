@@ -142,6 +142,7 @@ Assert-MatchText 'register restart path performs one more explorer restart as la
 Assert-MatchText 'register supports explicit skip-enable mode for internal restart flow' $registerScript '(?s)if /i not "%SKIP_ENABLE%"=="skipenable"'
 Assert-MatchText 'enable script uses retry helper for unstable explorer startup timing' $enableScript 'EnsureShownWithRetry'
 Assert-MatchText 'enable script runs multiple retry attempts by default' $enableScript 'EnsureShownWithRetry\(\$DeskBandClsid,\s*5,\s*5,\s*200\)'
+Assert-MatchText 'enable script emits detailed last-error telemetry for startup race diagnostics' $enableScript 'last_error_hr=0x\{6:X8\}; last_error=\{7\}'
 
 if ($failures.Count -gt 0) {
   Write-Host ''
