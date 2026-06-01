@@ -49,7 +49,7 @@ if errorlevel 1 (
 echo [Register] Enabling Widget Music on taskbar...
 "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
 if errorlevel 1 (
-  echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar > Toolbars > Widget Music.
+  echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
 )
 
 if /i "%ACTION%"=="restart" (

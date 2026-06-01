@@ -47,8 +47,11 @@ constexpr UINT_PTR kVisibleAuditTimerId = 0x4D58;
 constexpr UINT_PTR kCompactTitleTimerId = 0x4D59;
 constexpr UINT_PTR kPipeStartTimerId = 0x4D5B;
 constexpr UINT_PTR kProgressTimerId = 0x4D5C;
+constexpr UINT_PTR kTitleCardAnimTimerId = 0x4D5D;
+constexpr UINT_PTR kTitleHoverIntentTimerId = 0x4D5E;
 constexpr UINT kMarqueeTimerMs = 16;
 constexpr UINT kProgressTimerMs = 1000;
+constexpr UINT kTitleCardAnimTimerMs = 16;
 constexpr int kMarqueeSpeedPxPerSec = 40;
 constexpr DWORD kMarqueeMaxFrameMs = 48;
 constexpr DWORD kMarqueeInitialPauseMs = 900;
@@ -56,9 +59,15 @@ constexpr DWORD kMarqueeLoopPauseMs = 700;
 constexpr DWORD kVisibleAuditMinIntervalMs = 350;
 constexpr DWORD kVisibleAuditDuringMarqueeMinIntervalMs = 1200;
 constexpr DWORD kCompactTitleRevealMs = 3200;
+constexpr DWORD kTitleHoverIntentDelayMs = 260;
+constexpr DWORD kTitleSuppressAfterClickMs = 1400;
+constexpr DWORD kTitleCardFadeInMs = 120;
+constexpr DWORD kTitleCardFadeOutMs = 160;
 constexpr DWORD kStartupPipeDelayMs = 7000;
 constexpr int kFullPad = 16;
 constexpr int kCompactTitlePopupMaxWidth = 280;
+constexpr int kSeekTrackHeight = 3;
+constexpr int kTitleCardSlidePx = 8;
 constexpr int kRoundButtonSize = 32;
 constexpr int kPlayVisualSize = 28;
 constexpr float kPlayRingWidth = 1.5f;
@@ -1326,6 +1335,14 @@ class WidgetMusicDeskband final : public IDeskBand2,
           OnProgressTimer();
           return 0;
         }
+        if (wp == kTitleCardAnimTimerId) {
+          OnTitleCardAnimTimer();
+          return 0;
+        }
+        if (wp == kTitleHoverIntentTimerId) {
+          OnTitleHoverIntentTimer();
+          return 0;
+        }
         if (wp == kMarqueeTimerId) {
           OnMarqueeTimer();
           return 0;
@@ -1499,83 +1516,165 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (_hwnd && _compactTitleTimerOn) ::KillTimer(_hwnd, kCompactTitleTimerId);
     _compactTitleTimerOn = false;
     _compactTitleUntilTick = 0;
-    HideCompactTitlePopup(false);
-    if (clearText) _compactTitleText.clear();
+    StopTitleHoverIntentTimer();
+    StopTitleCardAnimTimer();
+    HideCompactTitlePopup(clearText);
   }
 
-  void EnsureCompactTitlePopup() {
-    if (_compactTitlePopup || !_hwnd) return;
+  void EnsureCompactTitlePopup() {}
 
-    INITCOMMONCONTROLSEX icc{};
-    icc.dwSize = sizeof(icc);
-    icc.dwICC = ICC_BAR_CLASSES;
-    ::InitCommonControlsEx(&icc);
+  void StopTitleCardAnimTimer() {
+    if (_hwnd && _titleCardAnimTimerOn) ::KillTimer(_hwnd, kTitleCardAnimTimerId);
+    _titleCardAnimTimerOn = false;
+  }
 
-    _compactTitlePopup = ::CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr,
-                                           WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
-                                           CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
-                                           _hwnd, nullptr, g_hInstance, nullptr);
-    if (!_compactTitlePopup) return;
+  void StartTitleCardAnimation(BYTE targetAlpha) {
+    if (!_hwnd) return;
+    _titleCardAnimFromAlpha = _titleCardAlpha;
+    _titleCardAnimToAlpha = targetAlpha;
+    _titleCardAnimStartTick = ::GetTickCount();
+    if (!_titleCardAnimTimerOn && ::SetTimer(_hwnd, kTitleCardAnimTimerId, kTitleCardAnimTimerMs, nullptr) != 0) {
+      _titleCardAnimTimerOn = true;
+    }
+    if (_titleCardAnimFromAlpha == _titleCardAnimToAlpha) {
+      _titleCardAlpha = targetAlpha;
+      StopTitleCardAnimTimer();
+    }
+    ::InvalidateRect(_hwnd, nullptr, FALSE);
+  }
 
-    ::SetWindowPos(_compactTitlePopup, HWND_TOPMOST, 0, 0, 0, 0,
-                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    ::SendMessageW(_compactTitlePopup, TTM_SETMAXTIPWIDTH, 0, kCompactTitlePopupMaxWidth);
-    ::SendMessageW(_compactTitlePopup, TTM_SETDELAYTIME, TTDT_INITIAL, 0);
-    ::SendMessageW(_compactTitlePopup, TTM_SETDELAYTIME, TTDT_AUTOPOP, kCompactTitleRevealMs + 300);
+  void SplitTitleCardText(const std::wstring& text, std::wstring* headline, std::wstring* subline) {
+    if (!headline || !subline) return;
+    headline->clear();
+    subline->clear();
+    size_t sep = text.find(L" \x2014 ");
+    if (sep == std::wstring::npos) {
+      *headline = text;
+      return;
+    }
+    *headline = text.substr(0, sep);
+    *subline = text.substr(sep + 3);
+  }
 
-    TOOLINFOW ti{};
-    ti.cbSize = sizeof(ti);
-    ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
-    ti.hwnd = _hwnd;
-    ti.uId = 1;
-    ti.lpszText = const_cast<LPWSTR>(L"");
-    ::SendMessageW(_compactTitlePopup, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+  std::wstring BuildTitleCardBadge() {
+    BandState s;
+    {
+      std::lock_guard<std::mutex> lock(_stateMu);
+      s = _state;
+    }
+    std::wstring src = !s.app.empty() ? s.app : (!s.title.empty() ? s.title : kDeskbandTitle);
+    wchar_t ch = L'M';
+    for (wchar_t c : src) {
+      if (c != L' ' && c != L'\t') {
+        ch = c;
+        ::CharUpperBuffW(&ch, 1);
+        break;
+      }
+    }
+    return std::wstring(1, ch);
+  }
+
+  void StopTitleHoverIntentTimer() {
+    if (_hwnd && _titleHoverIntentTimerOn) ::KillTimer(_hwnd, kTitleHoverIntentTimerId);
+    _titleHoverIntentTimerOn = false;
+  }
+
+  void StartTitleHoverIntentTimer() {
+    if (!_hwnd || _titleHoverIntentTimerOn) return;
+    if (::SetTimer(_hwnd, kTitleHoverIntentTimerId, kTitleHoverIntentDelayMs, nullptr) != 0) {
+      _titleHoverIntentTimerOn = true;
+    }
+  }
+
+  bool IsPointInMediaButtons(POINT pt) const {
+    return ::PtInRect(&_btnPrev.rc, pt) || ::PtInRect(&_btnPlayPause.rc, pt) || ::PtInRect(&_btnNext.rc, pt);
+  }
+
+  void OnTitleCardAnimTimer() {
+    if (!_hwnd) {
+      StopTitleCardAnimTimer();
+      return;
+    }
+
+    const DWORD now = ::GetTickCount();
+    const DWORD elapsed = now - _titleCardAnimStartTick;
+    const DWORD duration = (_titleCardAnimToAlpha > _titleCardAnimFromAlpha) ? kTitleCardFadeInMs : kTitleCardFadeOutMs;
+    if (duration == 0 || elapsed >= duration) {
+      _titleCardAlpha = _titleCardAnimToAlpha;
+      StopTitleCardAnimTimer();
+    } else {
+      const int delta = static_cast<int>(_titleCardAnimToAlpha) - static_cast<int>(_titleCardAnimFromAlpha);
+      const int next = static_cast<int>(_titleCardAnimFromAlpha) + (delta * static_cast<int>(elapsed)) / static_cast<int>(duration);
+      _titleCardAlpha = static_cast<BYTE>(max(0, min(255, next)));
+    }
+
+    if (_titleCardAlpha == 0 && !_compactTitlePopupVisible) {
+      _titleCardHeadline.clear();
+      _titleCardSubline.clear();
+      _titleCardBadge.clear();
+      _compactTitleText.clear();
+    }
+    ::InvalidateRect(_hwnd, nullptr, FALSE);
+  }
+
+  void OnTitleHoverIntentTimer() {
+    StopTitleHoverIntentTimer();
+    if (!_hwnd || ::GetCapture() == _hwnd || _hoverTitlePopupActive) return;
+    DWORD now = ::GetTickCount();
+    if (now < _titleCardSuppressUntilTick) return;
+    if (_textRc.right <= _textRc.left || !::PtInRect(&_textRc, _lastMousePoint)) return;
+    if (IsPointInMediaButtons(_lastMousePoint)) return;
+
+    BandState s;
+    {
+      std::lock_guard<std::mutex> lock(_stateMu);
+      s = _state;
+    }
+    std::wstring hoverText = BuildTrackPopupText(s);
+    if (hoverText.empty()) return;
+    ShowCompactTitlePopup(hoverText);
+    _hoverTitlePopupActive = true;
   }
 
   void HideCompactTitlePopup(bool clearText) {
-    if (_compactTitlePopup && _compactTitlePopupVisible) {
-      TOOLINFOW ti{};
-      ti.cbSize = sizeof(ti);
-      ti.hwnd = _hwnd;
-      ti.uId = 1;
-      ::SendMessageW(_compactTitlePopup, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
-      _compactTitlePopupVisible = false;
-    }
+    _compactTitlePopupVisible = false;
     _hoverTitlePopupActive = false;
-    if (clearText) _compactTitleText.clear();
+    if (clearText) {
+      _titleCardAlpha = 0;
+      _titleCardAnimFromAlpha = 0;
+      _titleCardAnimToAlpha = 0;
+      StopTitleCardAnimTimer();
+      _titleCardHeadline.clear();
+      _titleCardSubline.clear();
+      _titleCardBadge.clear();
+      _compactTitleText.clear();
+      if (_hwnd) ::InvalidateRect(_hwnd, nullptr, FALSE);
+      return;
+    }
+    StartTitleCardAnimation(0);
   }
 
   void ShowCompactTitlePopup(const std::wstring& text) {
     if (!_hwnd || text.empty()) return;
-    EnsureCompactTitlePopup();
-    if (!_compactTitlePopup) return;
-
     _compactTitleText = text;
-    TOOLINFOW ti{};
-    ti.cbSize = sizeof(ti);
-    ti.hwnd = _hwnd;
-    ti.uId = 1;
-    ti.lpszText = const_cast<LPWSTR>(_compactTitleText.c_str());
-    ::SendMessageW(_compactTitlePopup, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
-
-    RECT wr{};
-    ::GetWindowRect(_hwnd, &wr);
-    const int x = (wr.left + wr.right) / 2;
-    const int y = wr.top - 8;
-    ::SendMessageW(_compactTitlePopup, TTM_TRACKPOSITION, 0, MAKELPARAM(x, y));
-    ::SendMessageW(_compactTitlePopup, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
+    SplitTitleCardText(text, &_titleCardHeadline, &_titleCardSubline);
+    if (_titleCardHeadline.empty()) _titleCardHeadline = text;
+    _titleCardBadge = BuildTitleCardBadge();
     _compactTitlePopupVisible = true;
+    StartTitleCardAnimation(232);
   }
 
   void StartCompactTitleReveal(const std::wstring& text) {
     if (!_hwnd || text.empty()) return;
+    DWORD now = ::GetTickCount();
+    if (now < _titleCardSuppressUntilTick) return;
     if (_compactTitleTimerOn) {
       ::KillTimer(_hwnd, kCompactTitleTimerId);
       _compactTitleTimerOn = false;
     }
     _hoverTitlePopupActive = false;
     ShowCompactTitlePopup(text);
-    _compactTitleUntilTick = ::GetTickCount() + kCompactTitleRevealMs;
+    _compactTitleUntilTick = now + kCompactTitleRevealMs;
     if (::SetTimer(_hwnd, kCompactTitleTimerId, kCompactTitleRevealMs, nullptr) != 0) {
       _compactTitleTimerOn = true;
     }
@@ -1586,7 +1685,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _compactTitleTimerOn = false;
     _compactTitleUntilTick = 0;
     if (_hoverTitlePopupActive) return;
-    StopCompactTitleTimer(true);
+    HideCompactTitlePopup(false);
   }
 
   void SetDisplayMode(BandDisplayMode nextMode) {
@@ -2019,6 +2118,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _btnPlayPause.rc = {};
       _btnNext.rc = {};
       _textRc = {};
+      _seekRc = {};
       return;
     }
 
@@ -2047,6 +2147,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     if (IsCompactMode()) {
       _textRc = {};
+      _seekRc = {};
       int buttonsWidth = sideBtn * 2 + playBtn + gap * 2;
       int x = visibleLeft + (visibleW - buttonsWidth) / 2;
       if (x < visibleLeft + 2) x = visibleLeft + 2;
@@ -2070,19 +2171,28 @@ class WidgetMusicDeskband final : public IDeskBand2,
       int textRight = _btnPrev.rc.left - 8;
       int textLeft = visibleLeft + pad;
       if (textRight < textLeft) textRight = textLeft;
-      _textRc = {textLeft, 1, textRight, h - 1};
+      int seekTop = h - 5;
+      if (seekTop < 14) seekTop = 14;
+      _textRc = {textLeft, 1, textRight, seekTop - 2};
+      if (_textRc.bottom <= _textRc.top) _textRc.bottom = _textRc.top + 1;
+      _seekRc = {textLeft + 2, seekTop, textRight - 2, min(h - 1, seekTop + kSeekTrackHeight + 1)};
+      if (_seekRc.right <= _seekRc.left || _seekRc.bottom <= _seekRc.top) _seekRc = {};
     }
+    if (_seekRc.right <= _seekRc.left) _seekHover = false;
 
     UpdateTooltipRects();
   }
 
   void OnMouseDown(int x, int y) {
     if (!_hwnd) return;
-    if (_hoverTitlePopupActive) HideCompactTitlePopup(false);
+    _titleCardSuppressUntilTick = ::GetTickCount() + kTitleSuppressAfterClickMs;
+    StopTitleHoverIntentTimer();
+    if (_titleCardAlpha > 0) HideCompactTitlePopup(false);
     _mouseInClient = true;
     TrackMouseLeave();
     ::SetCapture(_hwnd);
     POINT pt{ x, y };
+    _lastMousePoint = pt;
     UpdateHotButtons(pt);
     if (_btnPrev.enabled && ::PtInRect(&_btnPrev.rc, pt)) _btnPrev.pressed = true;
     if (_btnPlayPause.enabled && ::PtInRect(&_btnPlayPause.rc, pt)) _btnPlayPause.pressed = true;
@@ -2093,19 +2203,40 @@ class WidgetMusicDeskband final : public IDeskBand2,
   void OnMouseMove(int x, int y) {
     if (!_hwnd) return;
     POINT pt{ x, y };
+    _lastMousePoint = pt;
     _mouseInClient = true;
     TrackMouseLeave();
+    const bool capturing = (::GetCapture() == _hwnd);
+    const bool inText = (_textRc.right > _textRc.left) && ::PtInRect(&_textRc, pt);
+    const bool inButtons = IsPointInMediaButtons(pt);
 
-    if (!_hoverTitlePopupActive && ::GetCapture() != _hwnd) {
-      BandState s;
-      {
-        std::lock_guard<std::mutex> lock(_stateMu);
-        s = _state;
+    BandState s;
+    {
+      std::lock_guard<std::mutex> lock(_stateMu);
+      s = _state;
+    }
+
+    const bool canSeekHover = IsFullMode() && s.has_timeline && s.duration_ms > 0 &&
+                              _seekRc.right > _seekRc.left && ::PtInRect(&_seekRc, pt);
+    if (_seekHover != canSeekHover) {
+      _seekHover = canSeekHover;
+      if (_hwnd) {
+        if (_seekRc.right > _seekRc.left) {
+          ::InvalidateRect(_hwnd, &_seekRc, FALSE);
+        } else {
+          ::InvalidateRect(_hwnd, nullptr, FALSE);
+        }
       }
-      std::wstring hoverText = BuildTrackPopupText(s);
-      if (!hoverText.empty()) {
-        ShowCompactTitlePopup(hoverText);
-        _hoverTitlePopupActive = true;
+    }
+
+    const DWORD now = ::GetTickCount();
+    const bool allowHoverTitle = !capturing && inText && !inButtons && now >= _titleCardSuppressUntilTick;
+    if (allowHoverTitle) {
+      if (!_hoverTitlePopupActive && !_compactTitleTimerOn) StartTitleHoverIntentTimer();
+    } else {
+      StopTitleHoverIntentTimer();
+      if (_hoverTitlePopupActive || (inButtons && _titleCardAlpha > 0)) {
+        HideCompactTitlePopup(false);
       }
     }
 
@@ -2114,7 +2245,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     bool hNext = _btnNext.hot;
     UpdateHotButtons(pt);
 
-    if (::GetCapture() != _hwnd) {
+    if (!capturing) {
       if (hPrev != _btnPrev.hot || hPP != _btnPlayPause.hot || hNext != _btnNext.hot) {
         InvalidateButtons();
       }
@@ -2153,7 +2284,12 @@ class WidgetMusicDeskband final : public IDeskBand2,
   void OnMouseLeave() {
     _trackingMouse = false;
     _mouseInClient = false;
+    StopTitleHoverIntentTimer();
     if (_hoverTitlePopupActive) HideCompactTitlePopup(false);
+    if (_seekHover) {
+      _seekHover = false;
+      if (_hwnd && _seekRc.right > _seekRc.left) ::InvalidateRect(_hwnd, &_seekRc, FALSE);
+    }
     if (!_btnPrev.hot && !_btnPlayPause.hot && !_btnNext.hot) return;
     _btnPrev.hot = false;
     _btnPlayPause.hot = false;
@@ -2267,6 +2403,116 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return PrimaryTextForState(s);
   }
 
+  int MeasureTextWidth(HDC hdc, HFONT font, const std::wstring& text) const {
+    if (!hdc || !font || text.empty()) return 0;
+    HGDIOBJ old = ::SelectObject(hdc, font);
+    SIZE sz{};
+    ::GetTextExtentPoint32W(hdc, text.c_str(), static_cast<int>(text.size()), &sz);
+    if (old) ::SelectObject(hdc, old);
+    return sz.cx;
+  }
+
+  void DrawTitleCardOverlay(HDC mem,
+                            const RECT& clientRc,
+                            HFONT baseFont,
+                            COLORREF panelFill,
+                            COLORREF fg,
+                            COLORREF accent,
+                            bool highContrast,
+                            bool lightForeground) {
+    if (!mem || !baseFont || _titleCardAlpha == 0 || _titleCardHeadline.empty()) return;
+    const int clientW = clientRc.right - clientRc.left;
+    const int clientH = clientRc.bottom - clientRc.top;
+    if (clientW <= 0 || clientH <= 0) return;
+
+    const int alpha = static_cast<int>(_titleCardAlpha);
+    const int slide = (kTitleCardSlidePx * (255 - alpha)) / 255;
+    const int padX = 10;
+    const int padY = 6;
+    const int badgeSize = 18;
+    const int gap = 8;
+    const int maxCardW = min(kCompactTitlePopupMaxWidth, clientW - 8);
+    if (maxCardW < 120) return;
+
+    int headlineW = MeasureTextWidth(mem, baseFont, _titleCardHeadline);
+    int sublineW = MeasureTextWidth(mem, baseFont, _titleCardSubline);
+    int textW = max(headlineW, sublineW);
+    int cardW = min(maxCardW, max(128, (padX * 2) + badgeSize + gap + textW));
+    int cardH = _titleCardSubline.empty() ? 30 : 40;
+
+    int centerX = (_textRc.right > _textRc.left) ? ((_textRc.left + _textRc.right) / 2) : (clientW / 2);
+    int left = centerX - cardW / 2;
+    int minLeft = clientRc.left + 4;
+    int maxLeft = clientRc.right - cardW - 4;
+    if (left < minLeft) left = minLeft;
+    if (left > maxLeft) left = maxLeft;
+    int top = clientRc.top + 2 + slide;
+    int bottomLimit = clientRc.bottom - cardH - 2;
+    if (top > bottomLimit) top = bottomLimit;
+    if (top < clientRc.top + 1) top = clientRc.top + 1;
+
+    RECT card{left, top, left + cardW, top + cardH};
+    _titleCardRc = card;
+
+    const BYTE mix = static_cast<BYTE>(40 + (alpha * 120) / 255);
+    COLORREF fillTarget = lightForeground ? RGB(255, 255, 255) : RGB(22, 22, 22);
+    COLORREF cardFill = Blend(panelFill, fillTarget, mix);
+    COLORREF borderColor = Blend(cardFill, fg, static_cast<BYTE>(50 + (alpha * 70) / 255));
+    COLORREF accentColor = Blend(panelFill, accent, static_cast<BYTE>(80 + (alpha * 120) / 255));
+    COLORREF headlineColor = Blend(panelFill, fg, static_cast<BYTE>(80 + (alpha * 150) / 255));
+    COLORREF sublineColor = Blend(panelFill, headlineColor, 130);
+    COLORREF badgeTextColor = highContrast ? ::GetSysColor(COLOR_HIGHLIGHTTEXT) : RGB(255, 255, 255);
+
+    HBRUSH fillBrush = ::CreateSolidBrush(cardFill);
+    HGDIOBJ oldBrush = ::SelectObject(mem, fillBrush);
+    HPEN borderPen = ::CreatePen(PS_SOLID, 1, borderColor);
+    HGDIOBJ oldPen = ::SelectObject(mem, borderPen);
+    ::RoundRect(mem, card.left, card.top, card.right, card.bottom, 10, 10);
+    ::SelectObject(mem, oldPen);
+    ::SelectObject(mem, oldBrush);
+    ::DeleteObject(borderPen);
+    ::DeleteObject(fillBrush);
+
+    RECT accentRc{card.left + 1, card.top + 1, card.right - 1, card.top + 3};
+    HBRUSH accentBrush = ::CreateSolidBrush(accentColor);
+    ::FillRect(mem, &accentRc, accentBrush);
+    ::DeleteObject(accentBrush);
+
+    RECT badgeRc{card.left + padX, card.top + (cardH - badgeSize) / 2, card.left + padX + badgeSize,
+                 card.top + (cardH - badgeSize) / 2 + badgeSize};
+    HBRUSH badgeBrush = ::CreateSolidBrush(accentColor);
+    HGDIOBJ oldBadgeBrush = ::SelectObject(mem, badgeBrush);
+    HPEN badgePen = ::CreatePen(PS_SOLID, 1, accentColor);
+    HGDIOBJ oldBadgePen = ::SelectObject(mem, badgePen);
+    ::Ellipse(mem, badgeRc.left, badgeRc.top, badgeRc.right, badgeRc.bottom);
+    ::SelectObject(mem, oldBadgePen);
+    ::SelectObject(mem, oldBadgeBrush);
+    ::DeleteObject(badgePen);
+    ::DeleteObject(badgeBrush);
+
+    ::SetBkMode(mem, TRANSPARENT);
+    RECT badgeTextRc = badgeRc;
+    ::SetTextColor(mem, badgeTextColor);
+    ::DrawTextW(mem, _titleCardBadge.c_str(), static_cast<int>(_titleCardBadge.size()), &badgeTextRc,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+    RECT textRc{badgeRc.right + gap, card.top + padY - 1, card.right - padX, card.bottom - padY};
+    RECT headlineRc = textRc;
+    if (!_titleCardSubline.empty()) {
+      headlineRc.bottom = headlineRc.top + ((textRc.bottom - textRc.top) / 2) + 1;
+    }
+    ::SetTextColor(mem, headlineColor);
+    ::DrawTextW(mem, _titleCardHeadline.c_str(), static_cast<int>(_titleCardHeadline.size()), &headlineRc,
+                DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+
+    if (!_titleCardSubline.empty()) {
+      RECT subRc{textRc.left, headlineRc.bottom - 1, textRc.right, textRc.bottom + 1};
+      ::SetTextColor(mem, sublineColor);
+      ::DrawTextW(mem, _titleCardSubline.c_str(), static_cast<int>(_titleCardSubline.size()), &subRc,
+                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    }
+  }
+
   void StopProgressTimer() {
     if (_hwnd && _progressTimerOn) {
       ::KillTimer(_hwnd, kProgressTimerId);
@@ -2302,8 +2548,16 @@ class WidgetMusicDeskband final : public IDeskBand2,
       return;
     }
 
-    if (_textRc.right > _textRc.left) {
-      ::InvalidateRect(_hwnd, &_textRc, FALSE);
+    RECT dirty = _textRc;
+    if (_seekRc.right > _seekRc.left) {
+      if (dirty.right > dirty.left) {
+        ::UnionRect(&dirty, &dirty, &_seekRc);
+      } else {
+        dirty = _seekRc;
+      }
+    }
+    if (dirty.right > dirty.left) {
+      ::InvalidateRect(_hwnd, &dirty, FALSE);
     } else {
       ::InvalidateRect(_hwnd, nullptr, FALSE);
     }
@@ -2537,13 +2791,13 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     // Snapshot state
     BandState s;
+    DWORD nowTick = ::GetTickCount();
     {
       std::lock_guard<std::mutex> lock(_stateMu);
       s = _state;
-      DWORD now = ::GetTickCount();
-      if (_optimisticActive && now <= _optimisticUntilTick && !_optimisticPlayback.empty()) {
+      if (_optimisticActive && nowTick <= _optimisticUntilTick && !_optimisticPlayback.empty()) {
         s.playback = _optimisticPlayback;
-      } else if (_optimisticActive && now > _optimisticUntilTick) {
+      } else if (_optimisticActive && nowTick > _optimisticUntilTick) {
         _optimisticActive = false;
         _optimisticPlayback.clear();
       }
@@ -2556,6 +2810,12 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _btnPrev.kind = 0;
     _btnPlayPause.kind = 1;
     _btnNext.kind = 2;
+
+    auto fillRectColor = [&](const RECT& rr, COLORREF color) {
+      HBRUSH br = ::CreateSolidBrush(color);
+      ::FillRect(mem, &rr, br);
+      ::DeleteObject(br);
+    };
 
     ::SetBkMode(mem, TRANSPARENT);
 
@@ -2573,14 +2833,61 @@ class WidgetMusicDeskband final : public IDeskBand2,
       StopMarqueeTimer(false);
     }
 
+    if (IsFullMode() && _seekRc.right > _seekRc.left) {
+      RECT track = _seekRc;
+      int midY = (_seekRc.top + _seekRc.bottom) / 2;
+      track.top = midY - (kSeekTrackHeight / 2);
+      track.bottom = track.top + kSeekTrackHeight;
+      if (track.bottom <= track.top) track.bottom = track.top + 1;
+
+      COLORREF trackColor = highContrast ? outline : Blend(panelFill, lightForeground ? RGB(255, 255, 255) : RGB(0, 0, 0),
+                                                            lightForeground ? 72 : 40);
+      COLORREF progressColor = highContrast ? accent : Blend(panelFill, accent, 190);
+      fillRectColor(track, trackColor);
+
+      RECT progress = track;
+      const int trackW = max(1, track.right - track.left);
+      int fillW = 0;
+      if (s.has_timeline && s.duration_ms > 0) {
+        int64_t posMs = EffectiveTimelinePositionMs(s, nowTick);
+        if (posMs < 0) posMs = 0;
+        if (posMs > s.duration_ms) posMs = s.duration_ms;
+        fillW = static_cast<int>((static_cast<double>(posMs) * static_cast<double>(trackW)) /
+                                 static_cast<double>(s.duration_ms));
+      } else {
+        const int span = max(14, trackW / 4);
+        const int travel = max(1, trackW - span);
+        const int offset = static_cast<int>((nowTick / 22u) % static_cast<DWORD>(travel));
+        progress.left = track.left + offset;
+        progress.right = min(track.right, progress.left + span);
+        fillRectColor(progress, progressColor);
+        fillW = -1;
+      }
+
+      if (fillW >= 0) {
+        progress.right = min(track.right, track.left + max(0, fillW));
+        if (progress.right > progress.left) fillRectColor(progress, progressColor);
+      }
+
+      if (_seekHover && s.has_timeline && s.duration_ms > 0) {
+        int thumbX = progress.right;
+        if (thumbX < track.left) thumbX = track.left;
+        if (thumbX > track.right) thumbX = track.right;
+        RECT thumb{thumbX - 4, track.top - 4, thumbX + 4, track.bottom + 4};
+        HBRUSH thumbFill = ::CreateSolidBrush(highContrast ? accentText : RGB(248, 248, 248));
+        HGDIOBJ oldBrush = ::SelectObject(mem, thumbFill);
+        HPEN thumbPen = ::CreatePen(PS_SOLID, 1, highContrast ? accent : Blend(panelFill, accent, 210));
+        HGDIOBJ oldPen = ::SelectObject(mem, thumbPen);
+        ::Ellipse(mem, thumb.left, thumb.top, thumb.right, thumb.bottom);
+        ::SelectObject(mem, oldPen);
+        ::SelectObject(mem, oldBrush);
+        ::DeleteObject(thumbPen);
+        ::DeleteObject(thumbFill);
+      }
+    }
+
     if (!textOnlyPaint) {
       // Buttons
-      auto fillRectColor = [&](const RECT& rr, COLORREF color) {
-      HBRUSH br = ::CreateSolidBrush(color);
-      ::FillRect(mem, &rr, br);
-      ::DeleteObject(br);
-      };
-
       const bool gpReady = EnsureGdiplus();
       Gdiplus::Graphics graphics(mem);
       if (gpReady) {
@@ -2810,6 +3117,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
       drawBtn(_btnNext);
     }
 
+    DrawTitleCardOverlay(mem, rc, hTextFont, panelFill, fg, accent, highContrast, lightForeground);
+
     if (dibBits) {
       auto* pixels = static_cast<uint32_t*>(dibBits);
       RECT alphaRc = repaintRc;
@@ -2851,6 +3160,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
   std::mutex _stateMu;
   BandState _state;
   RECT _textRc{};
+  RECT _seekRc{};
+  RECT _titleCardRc{};
 
   Button _btnPrev{};
   Button _btnPlayPause{};
@@ -2881,15 +3192,27 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
   bool _trackingMouse = false;
   bool _mouseInClient = false;
+  bool _seekHover = false;
   bool _compactTitlePopupVisible = false;
   bool _hoverTitlePopupActive = false;
   bool _compactTitleTimerOn = false;
+  bool _titleCardAnimTimerOn = false;
+  bool _titleHoverIntentTimerOn = false;
   bool _progressTimerOn = false;
   bool _pipeStartTimerOn = false;
   bool _pipeStarted = false;
   DWORD _compactTitleUntilTick = 0;
+  DWORD _titleCardSuppressUntilTick = 0;
+  DWORD _titleCardAnimStartTick = 0;
+  POINT _lastMousePoint{};
+  BYTE _titleCardAlpha = 0;
+  BYTE _titleCardAnimFromAlpha = 0;
+  BYTE _titleCardAnimToAlpha = 0;
   std::atomic<DWORD> _progressSnapshotTick{0};
   std::wstring _compactTitleText;
+  std::wstring _titleCardHeadline;
+  std::wstring _titleCardSubline;
+  std::wstring _titleCardBadge;
   std::wstring _lastPrimaryText;
   std::wstring _lastTrackPopupText;
   BandDisplayMode _bandMode = BandDisplayMode::Compact;
