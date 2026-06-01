@@ -140,16 +140,27 @@ if ($widget) {
   $bottom = [int]$parts[3]
   $cx = [int](($left + $right) / 2)
   $cy = [int](($top + $bottom) / 2)
-  ("MovingCursorTo=$cx,$cy") | Add-Content -LiteralPath $log -Encoding UTF8
-  [void][WidgetMusicHoverWin32]::SetCursorPos($cx, $cy)
+  $titleX = $left + 4
+  $titleY = $top + 2
+  ("MovingCursorToTitleZone=$titleX,$titleY") | Add-Content -LiteralPath $log -Encoding UTF8
+  [void][WidgetMusicHoverWin32]::SetCursorPos($titleX, $titleY)
   Start-Sleep -Milliseconds 1600
+  $titleRows = Get-ChildRows -Parent $tray
+  '--- After title popup hover ---' | Add-Content -LiteralPath $log -Encoding UTF8
+  ($titleRows | Sort-Object Class, Rect | Format-Table -AutoSize | Out-String) | Add-Content -LiteralPath $log -Encoding UTF8
+  $titleShot = Save-TaskbarShot -Name 'taskbar-widget-after-title-popup.png'
+  ("TitlePopupScreenshot=$titleShot") | Add-Content -LiteralPath $log -Encoding UTF8
+
+  ("MovingCursorToPlayButton=$cx,$cy") | Add-Content -LiteralPath $log -Encoding UTF8
+  [void][WidgetMusicHoverWin32]::SetCursorPos($cx, $cy)
+  Start-Sleep -Milliseconds 1100
 }
 
 $afterRows = Get-ChildRows -Parent $tray
-'--- After hover ---' | Add-Content -LiteralPath $log -Encoding UTF8
+'--- After play button tooltip hover ---' | Add-Content -LiteralPath $log -Encoding UTF8
 ($afterRows | Sort-Object Class, Rect | Format-Table -AutoSize | Out-String) | Add-Content -LiteralPath $log -Encoding UTF8
-$afterShot = Save-TaskbarShot -Name 'taskbar-widget-after-hover.png'
-("AfterScreenshot=$afterShot") | Add-Content -LiteralPath $log -Encoding UTF8
+$afterShot = Save-TaskbarShot -Name 'taskbar-widget-after-button-tooltip.png'
+("ButtonTooltipScreenshot=$afterShot") | Add-Content -LiteralPath $log -Encoding UTF8
 
 [void][WidgetMusicHoverWin32]::SetCursorPos(12, 12)
 Start-Sleep -Seconds 10

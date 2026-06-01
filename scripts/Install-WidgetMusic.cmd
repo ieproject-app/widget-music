@@ -16,6 +16,7 @@ if /i "%ENABLE_MODE%"=="auto" set "AUTO_ENABLE=1"
 if /i "%ENABLE_MODE%"=="enable" set "AUTO_ENABLE=1"
 set "ENABLE_SCRIPT=%ROOT%Enable-WidgetMusicTaskbar.ps1"
 set "ENABLE_WRAPPER=%ROOT%Invoke-WidgetMusicTaskbarEnable.ps1"
+set "RESTART_HELPER=%ROOT%Restart-WidgetMusicExplorer.ps1"
 
 if not exist "%DLL%" (
   echo [Install] Deskband DLL not found next to this script: "%DLL%"
@@ -29,7 +30,7 @@ set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "PS=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 
 if /i "%ACTION%"=="restart" (
-  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$sessionId = (Get-Process -Id $PID).SessionId; $killer = $null; if ($sessionId -ne 0) { $killer = Start-Job -ArgumentList $sessionId -ScriptBlock { param($sid) while ($true) { Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } } }; try { Get-Process WidgetMusicHost -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' norestart skipenable '%ENABLE_MODE%'; $code = $LASTEXITCODE } finally { if ($killer) { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue }; if ($sessionId -ne 0) { $explorerUp = $false; for ($i = 0; $i -lt 24; $i++) { if (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId }) { $explorerUp = $true; break }; Start-Process explorer.exe -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 350 }; if (-not $explorerUp) { Start-Process explorer.exe -ErrorAction SilentlyContinue } } }; exit $code"
+  "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%RESTART_HELPER%" -RegistrationCommand "%~f0" -RegistrationArgumentsText "norestart|skipenable|%ENABLE_MODE%" -StopHost
   set "ERR=%ERRORLEVEL%"
   if not errorlevel 1 (
     if defined AUTO_ENABLE (
@@ -51,7 +52,7 @@ if /i "%ACTION%"=="restart" (
 
         if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
           echo [Install] Retrying after one more Explorer restart...
-          "%PS%" -NoProfile -Command "$sid = (Get-Process -Id $PID).SessionId; Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; if ($sid -ne 0) { Start-Process explorer.exe -ErrorAction SilentlyContinue }" >nul 2>nul
+          "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%RESTART_HELPER%" -StopHost >nul 2>nul
           "%PS%" -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>nul
           for /l %%I in (1,1,10) do (
             if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
@@ -110,7 +111,7 @@ if defined INTERNAL_SKIP (
 
 if /i "%ACTION%"=="restart" (
   echo [Install] Restarting Explorer...
-  "%PS%" -NoProfile -Command "Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe" >nul 2>nul
+  "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%RESTART_HELPER%" -StopHost >nul 2>nul
 )
 
 echo [Install] Done.

@@ -3,173 +3,160 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$deskbandPath = Join-Path $root 'WidgetMusicDeskband\src\Deskband.cpp'
-$hostPath = Join-Path $root 'WidgetMusicHost\src\main.cpp'
-$installScriptPath = Join-Path $root 'scripts\Install-WidgetMusic.cmd'
-$packageScriptPath = Join-Path $root 'scripts\Package-WidgetMusic.cmd'
-$registerScriptPath = Join-Path $root 'scripts\Register-WidgetMusic.cmd'
-$enableScriptPath = Join-Path $root 'scripts\Enable-WidgetMusicTaskbar.ps1'
-$enableWrapperPath = Join-Path $root 'scripts\Invoke-WidgetMusicTaskbarEnable.ps1'
-$deskbandDll = Join-Path $root "out\$Configuration\x64\WidgetMusicDeskband.dll"
-$hostExe = Join-Path $root "out\$Configuration\x64\WidgetMusicHost.exe"
-$distDir = Join-Path $root 'out\dist\WidgetMusic'
-$distDll = Join-Path $distDir 'WidgetMusicDeskband.dll'
-$distHost = Join-Path $distDir 'WidgetMusicHost.exe'
-$distRegister = Join-Path $distDir 'Register-WidgetMusic.cmd'
-$distUnregister = Join-Path $distDir 'Unregister-WidgetMusic.cmd'
-$distEnableWrapper = Join-Path $distDir 'Invoke-WidgetMusicTaskbarEnable.ps1'
-
-$deskband = Get-Content -Raw -Path $deskbandPath
-$hostSource = Get-Content -Raw -Path $hostPath
-$installScript = Get-Content -Raw -Path $installScriptPath
-$packageScript = Get-Content -Raw -Path $packageScriptPath
-$registerScript = Get-Content -Raw -Path $registerScriptPath
-$enableScript = Get-Content -Raw -Path $enableScriptPath
-$enableWrapperScript = Get-Content -Raw -Path $enableWrapperPath
 $failures = New-Object System.Collections.Generic.List[string]
+
+function Read-Source {
+  param([string]$RelativePath)
+  Get-Content -Raw -LiteralPath (Join-Path $root $RelativePath)
+}
 
 function Add-Failure {
   param([string]$Message)
   $script:failures.Add($Message)
 }
 
-function Assert-MatchText {
-  param(
-    [string]$Name,
-    [string]$Text,
-    [string]$Pattern
-  )
-
-  if ($Text -notmatch $Pattern) {
-    Add-Failure $Name
-  } else {
-    Write-Host "[OK] $Name"
-  }
-}
-
-function Assert-NotMatchText {
-  param(
-    [string]$Name,
-    [string]$Text,
-    [string]$Pattern
-  )
-
-  if ($Text -match $Pattern) {
-    Add-Failure $Name
-  } else {
-    Write-Host "[OK] $Name"
-  }
-}
-
-function Assert-FileExists {
-  param([string]$Name, [string]$Path)
-
-  if (-not (Test-Path -LiteralPath $Path)) {
-    Add-Failure "$Name missing: $Path"
-    return
-  }
-
-  $item = Get-Item -LiteralPath $Path
-  Write-Host ("[OK] {0}: {1} bytes, {2}" -f $Name, $item.Length, $item.LastWriteTime)
-}
-
 function Assert-Condition {
   param([string]$Name, [bool]$Condition)
-
-  if (-not $Condition) {
-    Add-Failure $Name
-  } else {
+  if ($Condition) {
     Write-Host "[OK] $Name"
+  } else {
+    Add-Failure $Name
   }
 }
 
-Assert-FileExists 'Deskband DLL output' $deskbandDll
-Assert-FileExists 'Host EXE output' $hostExe
-Assert-FileExists 'Install script source' $installScriptPath
-Assert-FileExists 'Package script source' $packageScriptPath
-Assert-FileExists 'Register script source' $registerScriptPath
-Assert-FileExists 'Taskbar enable script source' $enableScriptPath
-Assert-FileExists 'Taskbar enable wrapper script source' $enableWrapperPath
-Assert-FileExists 'Clean package deskband DLL' $distDll
-Assert-FileExists 'Clean package host EXE' $distHost
-Assert-FileExists 'Clean package register script' $distRegister
-Assert-FileExists 'Clean package unregister script' $distUnregister
-Assert-FileExists 'Clean package enable wrapper script' $distEnableWrapper
-
-if (Test-Path -LiteralPath $distDir) {
-  $distFiles = Get-ChildItem -LiteralPath $distDir -Recurse -File
-  $distSize = ($distFiles | Measure-Object Length -Sum).Sum
-  Assert-Condition 'clean package is below 1 MB' ($distSize -lt 1MB)
-  Assert-Condition 'clean package does not include PDB files' (-not ($distFiles | Where-Object { $_.Extension -ieq '.pdb' }))
-  Assert-Condition 'clean package does not include intermediate files' (-not (Test-Path -LiteralPath (Join-Path $distDir 'intermediate')))
+function Assert-File {
+  param([string]$Name, [string]$Path)
+  Assert-Condition "$Name exists" (Test-Path -LiteralPath $Path -PathType Leaf)
 }
 
-Assert-MatchText 'compact mode width is taskbar-toolbar sized' $deskband 'constexpr\s+int\s+kBandCompactWidth\s*=\s*132;'
-Assert-MatchText 'compact title reveal duration is defined' $deskband 'constexpr\s+DWORD\s+kCompactTitleRevealMs\s*=\s*3200;'
-Assert-MatchText 'startup host delay is 7 seconds' $deskband 'constexpr\s+DWORD\s+kStartupPipeDelayMs\s*=\s*7000;'
-Assert-MatchText 'round control size is defined' $deskband 'constexpr\s+int\s+kRoundButtonSize\s*=\s*32;'
-Assert-MatchText 'play visual circle is smaller than hit target' $deskband 'constexpr\s+int\s+kPlayVisualSize\s*=\s*28;'
-Assert-MatchText 'play ring is visually lighter' $deskband 'constexpr\s+float\s+kPlayRingWidth\s*=\s*1\.5f;'
-Assert-MatchText 'side glyphs use compact vector size' $deskband 'constexpr\s+int\s+kSideGlyphSize\s*=\s*19;'
-Assert-MatchText 'play/pause visual scales with monitor DPI' $deskband '(?s)ScaleForDpi\(kPlayVisualSize,\s*dpiY\).*?ScaleForDpi\(kSideGlyphSize,\s*dpiY\).*?ringWidthPx'
-Assert-MatchText 'full-mode text width measurement is cached for marquee frames' $deskband '(?s)MeasurePrimaryTextWidth\(.*?_cachedPrimaryMeasureDpiY.*?_cachedPrimaryMeasureText.*?_cachedPrimaryMeasureWidth'
-Assert-MatchText 'marquee uses speed-based native timing' $deskband 'constexpr\s+int\s+kMarqueeSpeedPxPerSec\s*=\s*46;'
-Assert-MatchText 'marquee caps delayed frames' $deskband 'constexpr\s+DWORD\s+kMarqueeMaxFrameMs\s*=\s*32;'
-Assert-MatchText 'marquee uses tighter frame cadence' $deskband 'constexpr\s+UINT\s+kMarqueeTimerMs\s*=\s*12;'
-Assert-NotMatchText 'old fixed-pixel marquee tick removed' $deskband 'kMarqueePixelsPerTick'
-Assert-NotMatchText 'old auto-hide animation constants removed' $deskband 'kAutoHide|AutoHide|AnimationProgressPermille|Collapsing|Expanding'
-Assert-MatchText 'startup erase paints taskbar background immediately' $deskband '(?s)case\s+WM_ERASEBKGND:.*?PaintImmediateBackground\(hwnd,\s*reinterpret_cast<HDC>\(wp\)\)'
-Assert-MatchText 'deskband starts in compact mode by default' $deskband '_bandMode\s*=\s*BandDisplayMode::Compact'
-Assert-MatchText 'display mode update uses official band info notification' $deskband '(?s)void\s+SetDisplayMode\(BandDisplayMode\s+nextMode\).*?_bandMode\s*=\s*nextMode;.*?NotifyBandInfoChanged\(\).*?ApplyCurrentBandSize\(\)'
-Assert-MatchText 'right-click context menu opens display mode menu' $deskband '(?s)case\s+WM_RBUTTONUP:.*?ShowModeContextMenu\(pt\.x,\s*pt\.y\).*?case\s+WM_CONTEXTMENU:.*?ShowModeContextMenu\(sx,\s*sy\)'
-Assert-MatchText 'context menu exposes compact and full entries' $deskband '(?s)void\s+ShowModeContextMenu\(.*?AppendMenuW\(menu,\s*compactFlags,\s*kMenuViewCompact,\s*L"Compact view"\).*?AppendMenuW\(menu,\s*fullFlags,\s*kMenuViewFull,\s*L"Full view"\)'
-Assert-MatchText 'resize keeps right edge anchored' $deskband '(?s)void\s+ApplyCurrentBandSize\(\).*?MapWindowPoints\(HWND_DESKTOP,\s*parent,\s*pts,\s*2\).*?pts\[1\]\.x\s*-\s*targetWidth'
-Assert-MatchText 'compact mode can reveal track title on change' $deskband '(?s)void\s+OnStateUpdated\(\).*?const\s+bool\s+primaryChanged.*?IsCompactMode\(\)\s*&&\s*primaryChanged.*?StartCompactTitleReveal\(primary\)'
-Assert-MatchText 'state updates repaint only dirty regions instead of forcing full layout' $deskband '(?s)void\s+OnStateUpdated\(\).*?if\s*\(_hwnd\)\s*\{.*?addRect.*?IsFullMode\(\).*?::InvalidateRect\(_hwnd,\s*&dirty,\s*FALSE\)'
-Assert-MatchText 'compact title reveal uses animated custom title card' $deskband '(?s)void\s+ShowCompactTitlePopup\(.*?SplitTitleCardText.*?StartTitleCardAnimation\(232\)'
-Assert-MatchText 'title popup is suppressed after click to avoid blocking controls' $deskband 'kTitleSuppressAfterClickMs'
-Assert-MatchText 'full mode renders seek track and hover thumb' $deskband '(?s)IsFullMode\(\)\s*&&\s*_seekRc\.right\s*>\s*_seekRc\.left.*?_seekHover'
-Assert-MatchText 'title card animation posts coalesced WM_APP frame messages' $deskband '(?s)TitleCardAnimTimerCallback.*?PostMessageW\(hwnd,\s*WM_APP_TITLECARD'
-Assert-MatchText 'title card animation starts from timer queue callback path' $deskband 'CreateTimerQueueTimer\(&timer,\s*nullptr,\s*TitleCardAnimTimerCallback'
-Assert-MatchText 'full mode disables hover title popup to keep title animation stable' $deskband 'allowHoverTitle\s*=\s*IsCompactMode\(\)\s*&&'
-Assert-MatchText 'progress timer prioritizes seek-only repaint in full mode' $deskband 'RECT\s+dirty\s*=\s*_seekRc;'
-Assert-NotMatchText 'mode chevron button removed from deskband surface' $deskband '_btnMode|drawModeGlyph|kModeGlyphSize|Switch compact/full view'
-Assert-MatchText 'deskband controls require an actionable session' $deskband '(?s)const\s+bool\s+actionableMedia\s*=\s*s\.connected\s*&&\s*s\.has_session;.*?_btnPlayPause\.enabled\s*=\s*actionableMedia\s*&&\s*s\.can_play_pause'
-Assert-MatchText 'optimistic play/pause is blocked without actionable media' $deskband '(?s)std::string\s+OptimisticPlayPauseTarget\(\).*?!_state\.connected\s*\|\|\s*!_state\.has_session\s*\|\|\s*!_state\.can_play_pause'
-Assert-MatchText 'hide path stops pipe client' $deskband '(?s)IFACEMETHODIMP\s+ShowDW\(BOOL\s+fShow\).*?else\s*\{.*?StopPipeClient\(true\)'
-Assert-NotMatchText 'old collapsed visual path removed' $deskband 'Collapsed|collapsed|StartCollapse|ExpandFromUser|drawRevealButton|IsRevealOnly'
+function Assert-Match {
+  param([string]$Name, [string]$Text, [string]$Pattern)
+  Assert-Condition $Name ($Text -match $Pattern)
+}
 
-Assert-MatchText 'host no-client timeout is 8 seconds' $hostSource 'constexpr\s+DWORD\s+kPipeNoClientTimeoutMs\s*=\s*8000;'
-Assert-MatchText 'host exits when no deskband connects' $hostSource '(?s)WAIT_TIMEOUT.*?Pipe connect timeout; host exiting.*?SetEvent\(_stopEvent\)'
-Assert-MatchText 'host exits when pipe client disconnects' $hostSource '(?s)Pipe client disconnected.*?SetEvent\(_stopEvent\)'
-Assert-MatchText 'Media Player window fallback does not enable fake controls' $hostSource '(?s)auto\s+tryMediaPlayerWindowFallback.*?out\.can_prev\s*=\s*false;.*?out\.can_next\s*=\s*false;.*?out\.can_play_pause\s*=\s*false;'
-Assert-MatchText 'host fallback media keys require an actionable target' $hostSource '(?s)allowFallbackMediaKey.*?TryReadMediaPlayerNowPlayingFromUIA.*?if\s*\(allowFallbackMediaKey\s*&&\s*\(IsTrackCommand\(name\)\s*\|\|\s*allowPlaybackFallback\)\)'
+function Assert-NoMatch {
+  param([string]$Name, [string]$Text, [string]$Pattern)
+  Assert-Condition $Name ($Text -notmatch $Pattern)
+}
 
-Assert-MatchText 'package script copies enable helper into runtime dist folder' $packageScript 'copy /y "%ROOT%\\scripts\\Enable-WidgetMusicTaskbar\.ps1" "%DIST%\\Enable-WidgetMusicTaskbar\.ps1"'
-Assert-MatchText 'package script copies non-blocking enable wrapper into runtime dist folder' $packageScript 'copy /y "%ROOT%\\scripts\\Invoke-WidgetMusicTaskbarEnable\.ps1" "%DIST%\\Invoke-WidgetMusicTaskbarEnable\.ps1"'
-Assert-MatchText 'runtime install restart path defers first enable attempt while explorer is down' $installScript '(?s)norestart\s+skipenable'
-Assert-MatchText 'runtime install restart path retries taskbar enable after explorer returns' $installScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?call :run_enable'
-Assert-MatchText 'runtime install supports explicit skip-enable mode for internal restart flow' $installScript '(?s)if /i "%ENABLE_MODE%"=="skipenable"'
-Assert-MatchText 'runtime install enables auto mode only when explicitly requested' $installScript '(?s)if /i "%ENABLE_MODE%"=="auto"\s+set "AUTO_ENABLE=1".*?if /i "%ENABLE_MODE%"=="enable"\s+set "AUTO_ENABLE=1"'
-Assert-MatchText 'runtime install defaults to manual non-interactive flow' $installScript 'Auto-enable not requested\. Enable manually from Taskbar \^> Toolbars \^> Widget Music\.'
-Assert-MatchText 'runtime install restart path guarantees explorer relaunch with retry loop' $installScript '(?s)\$explorerUp\s*=\s*\$false;.*?for\s*\(\$i\s*=\s*0;\s*\$i\s*-lt\s*24;.*?Start-Process explorer\.exe'
-Assert-MatchText 'runtime install restart path scopes explorer control to current session' $installScript '(?s)\$sessionId\s*=\s*\(Get-Process -Id \$PID\)\.SessionId;.*?Where-Object\s*\{\s*\$_\.SessionId -eq \$sessionId\s*\}'
+function Assert-SameHash {
+  param([string]$Name, [string]$Source, [string]$Packaged)
+  if (-not (Test-Path -LiteralPath $Source -PathType Leaf) -or
+      -not (Test-Path -LiteralPath $Packaged -PathType Leaf)) {
+    Add-Failure "$Name cannot be compared because a file is missing"
+    return
+  }
+  $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Source).Hash
+  $packagedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $Packaged).Hash
+  Assert-Condition "$Name source and dist hashes match" ($sourceHash -eq $packagedHash)
+}
 
-Assert-MatchText 'register restart path defers first enable attempt while explorer is down' $registerScript '(?s)norestart\s+skipenable'
-Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?call :run_enable'
-Assert-MatchText 'register restart path performs one more explorer restart as last-resort recovery' $registerScript '(?s)Retrying after one more Explorer restart.*?Stop-Process -Force.*?Start-Process explorer\.exe'
-Assert-MatchText 'register supports explicit skip-enable mode for internal restart flow' $registerScript '(?s)if /i "%ENABLE_MODE%"=="skipenable"'
-Assert-MatchText 'register enables auto mode only when explicitly requested' $registerScript '(?s)if /i "%ENABLE_MODE%"=="auto"\s+set "AUTO_ENABLE=1".*?if /i "%ENABLE_MODE%"=="enable"\s+set "AUTO_ENABLE=1"'
-Assert-MatchText 'register defaults to manual non-interactive flow' $registerScript 'Auto-enable not requested\. Enable manually from Taskbar \^> Toolbars \^> Widget Music\.'
-Assert-MatchText 'register restart path guarantees explorer relaunch with retry loop' $registerScript '(?s)\$explorerUp\s*=\s*\$false;.*?for\s*\(\$i\s*=\s*0;\s*\$i\s*-lt\s*24;.*?Start-Process explorer\.exe'
-Assert-MatchText 'register restart path scopes explorer control to current session' $registerScript '(?s)\$sessionId\s*=\s*\(Get-Process -Id \$PID\)\.SessionId;.*?Where-Object\s*\{\s*\$_\.SessionId -eq \$sessionId\s*\}'
-Assert-MatchText 'enable script uses retry helper for unstable explorer startup timing' $enableScript 'EnsureShownWithRetry'
-Assert-MatchText 'enable script runs multiple retry attempts by default' $enableScript 'EnsureShownWithRetry\(\$DeskBandClsid,\s*5,\s*5,\s*200\)'
-Assert-MatchText 'enable script emits detailed last-error telemetry for startup race diagnostics' $enableScript 'last_error_hr=0x\{6:X8\}; last_error=\{7\}'
-Assert-MatchText 'enable wrapper enforces timeout to avoid blocking prompt waits' $enableWrapperScript 'Wait-Job\s+-Id\s+\$job\.Id\s+-Timeout\s+\$TimeoutSeconds'
-Assert-MatchText 'enable wrapper returns timeout status for caller fallback flow' $enableWrapperScript 'exit 2'
+$deskband = Read-Source 'WidgetMusicDeskband\src\Deskband.cpp'
+$accessibility = Read-Source 'WidgetMusicDeskband\src\Accessibility.h'
+$hostSource = Read-Source 'WidgetMusicHost\src\main.cpp'
+$protocol = Read-Source 'shared\WidgetMusicProtocol.h'
+$visual = Read-Source 'shared\WidgetMusicVisual.h'
+$package = Read-Source 'scripts\Package-WidgetMusic.cmd'
+$restart = Read-Source 'scripts\Restart-WidgetMusicExplorer.ps1'
+$register = Read-Source 'scripts\Register-WidgetMusic.cmd'
+$install = Read-Source 'scripts\Install-WidgetMusic.cmd'
+$unregister = Read-Source 'scripts\Unregister-WidgetMusic.cmd'
+$uninstall = Read-Source 'scripts\Uninstall-WidgetMusic.cmd'
+
+$buildDir = Join-Path $root "out\$Configuration\x64"
+$distDir = Join-Path $root 'out\dist\WidgetMusic'
+$dll = Join-Path $buildDir 'WidgetMusicDeskband.dll'
+$hostExe = Join-Path $buildDir 'WidgetMusicHost.exe'
+$distDll = Join-Path $distDir 'WidgetMusicDeskband.dll'
+$distHost = Join-Path $distDir 'WidgetMusicHost.exe'
+$sums = Join-Path $distDir 'SHA256SUMS.txt'
+
+Assert-File 'Deskband build DLL' $dll
+Assert-File 'Host build EXE' $hostExe
+Assert-File 'Packaged deskband DLL' $distDll
+Assert-File 'Packaged host EXE' $distHost
+Assert-File 'Package checksum manifest' $sums
+Assert-File 'Package version marker' (Join-Path $distDir 'VERSION.txt')
+Assert-File 'Packaged restart helper' (Join-Path $distDir 'Restart-WidgetMusicExplorer.ps1')
+Assert-SameHash 'Deskband DLL' $dll $distDll
+Assert-SameHash 'Host EXE' $hostExe $distHost
+
+if (Test-Path -LiteralPath $distDir -PathType Container) {
+  $distFiles = Get-ChildItem -LiteralPath $distDir -Recurse -File
+  $distBytes = ($distFiles | Measure-Object Length -Sum).Sum
+  Assert-Condition 'runtime package stays below 1 MB' ($distBytes -lt 1MB)
+  Assert-Condition 'runtime package excludes PDB files' (-not ($distFiles | Where-Object Extension -ieq '.pdb'))
+  Assert-Condition 'runtime package excludes intermediate output' (-not (Test-Path -LiteralPath (Join-Path $distDir 'intermediate')))
+}
+
+if (Test-Path -LiteralPath $sums -PathType Leaf) {
+  $sumLines = Get-Content -LiteralPath $sums
+  $expectedFiles = Get-ChildItem -LiteralPath $distDir -File | Where-Object Name -ne 'SHA256SUMS.txt'
+  Assert-Condition 'checksum manifest covers every packaged file' ($sumLines.Count -eq $expectedFiles.Count)
+  foreach ($file in $expectedFiles) {
+    $expected = '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant(), $file.Name
+    Assert-Condition "checksum matches $($file.Name)" ($sumLines -contains $expected)
+  }
+}
+
+if (Test-Path -LiteralPath $dll -PathType Leaf) {
+  Assert-Condition 'Deskband binary version is 1.0.0.0' ((Get-Item -LiteralPath $dll).VersionInfo.FileVersion -eq '1.0.0.0')
+}
+if (Test-Path -LiteralPath $hostExe -PathType Leaf) {
+  Assert-Condition 'Host binary version is 1.0.0.0' ((Get-Item -LiteralPath $hostExe).VersionInfo.FileVersion -eq '1.0.0.0')
+}
+
+Assert-Match 'full mode remains progress-first' $deskband '(?s)BuildPrimaryText\(const BandState& s\).*?IsFullMode\(\).*?BuildProgressText\(s,\s*now\).*?return progress'
+Assert-Match 'progress timer repaints text and seek union' $deskband '(?s)OnProgressTimer\(\).*?RECT dirty = _seekRc;.*?UnionRect\(&dirty,\s*&dirty,\s*&_textRc\)'
+Assert-Match 'taskbar surface sampling is preferred before DWM fallback' $deskband '(?s)COLORREF sampled = SampleAdjacentTaskbarColor\(hwnd,\s*CLR_INVALID\);.*?COLORREF dwmColor = GetTaskbarColorViaDWM\(\);.*?sampled != CLR_INVALID \? sampled'
+Assert-Match 'taskbar surface uses robust median color' $deskband 'widgetmusic::MedianColor\(samples,\s*fallback\)'
+Assert-NoMatch 'dormant marquee path is removed' $deskband '(?i)marquee'
+Assert-NoMatch 'display-only progress bar has no seek hover affordance' $deskband '(?i)seekHover'
+Assert-Match 'title popup clamps to active monitor' $deskband '(?s)MonitorFromWindow\(_hwnd,\s*MONITOR_DEFAULTTONEAREST\).*?const int above.*?const int below'
+Assert-Match 'keyboard path handles arrows and activation keys' $deskband '(?s)case WM_KEYDOWN:.*?OnKeyDown.*?VK_LEFT.*?VK_RIGHT.*?VK_RETURN.*?VK_SPACE'
+Assert-Match 'deskband publishes MSAA through WM_GETOBJECT' $deskband '(?s)case WM_GETOBJECT:.*?OBJID_CLIENT.*?LresultFromObject\(IID_IAccessible'
+Assert-Match 'deskband emits accessibility state events' $deskband 'NotifyWinEvent\(EVENT_OBJECT_STATECHANGE'
+Assert-Match 'focus ring uses Windows focus drawing' $deskband 'DrawFocusRect\(mem,\s*&focusRc\)'
+Assert-Match 'MSAA exposes three virtual children' $accessibility 'kAccessibleButtonCount = 3'
+Assert-Match 'MSAA exposes push-button roles' $accessibility 'ROLE_SYSTEM_PUSHBUTTON'
+
+Assert-Match 'pipe path is session scoped' $protocol 'WidgetMusic\.Pipe\.v1\.Session\.'
+Assert-Match 'shared payload cap is defined' $protocol 'kMaxPipeMessageBytes = 16 \* 1024'
+Assert-Match 'shared metadata caps are defined' $protocol 'kMaxTitleChars = 256'
+Assert-Match 'host uses logon SID group for pipe ACL' $hostSource 'SE_GROUP_LOGON_ID'
+Assert-Match 'pipe ACL creation fails closed' $hostSource '(?s)if\s*\(!MakePipeSecurity\(&sa,\s*&sd\)\).*?refusing insecure fallback.*?return INVALID_HANDLE_VALUE'
+Assert-Match 'pipe rejects remote clients' $hostSource 'PIPE_REJECT_REMOTE_CLIENTS'
+Assert-Match 'host session pointer has dedicated mutex' $hostSource 'std::mutex _sessionMu'
+Assert-Match 'command path snapshots session under mutex' $hostSource '(?s)ExecuteCommand\(.*?lock\(_sessionMu\).*?session = _session'
+Assert-Match 'session replacement occurs under mutex' $hostSource '(?s)SetSession\(.*?lock\(_sessionMu\).*?_session = s'
+Assert-Match 'teardown clears pending command queue' $hostSource '(?s)void Stop\(\).*?_commandQueue\.clear\(\)'
+Assert-Match 'deskband requires protocol hello before state' $deskband '(?s)if\s*\(!_helloValidated\).*?Pipe state rejected before hello handshake'
+Assert-Match 'deskband validates protocol version' $deskband 'IsSupportedProtocolVersion\(version\)'
+Assert-Match 'host clamps state metadata' $hostSource 'ClampProtocolText'
+Assert-Match 'deskband clamps received metadata defensively' $deskband 'ClampProtocolText'
+Assert-Match 'deskband rotates logs above 512 KB' $deskband 'kMaxLogBytes = 512 \* 1024'
+Assert-Match 'host rotates logs above 512 KB' $hostSource 'kMaxLogBytes = 512 \* 1024'
+
+Assert-Match 'packager copies scoped Explorer restart helper' $package 'Restart-WidgetMusicExplorer\.ps1'
+Assert-Match 'packager writes VERSION.txt' $package 'VERSION\.txt'
+Assert-Match 'packager writes SHA256SUMS.txt' $package 'SHA256SUMS\.txt'
+Assert-Match 'restart helper scopes Explorer operations by session' $restart '(?s)\$sessionId = \(Get-Process -Id \$PID\)\.SessionId.*?Where-Object \{ \$_.SessionId -eq \$sessionId \}'
+Assert-Match 'restart helper scopes host shutdown by session' $restart 'Stop-SessionProcess -Name ''WidgetMusicHost'''
+foreach ($script in @(
+    @{ Name = 'register'; Text = $register },
+    @{ Name = 'install'; Text = $install },
+    @{ Name = 'unregister'; Text = $unregister },
+    @{ Name = 'uninstall'; Text = $uninstall }
+  )) {
+  Assert-Match "$($script.Name) uses scoped restart helper" $script.Text 'Restart-WidgetMusicExplorer\.ps1'
+  Assert-NoMatch "$($script.Name) contains no global Explorer stop" $script.Text 'Stop-Process\s+-Name\s+explorer'
+}
+
+Assert-File '.gitattributes' (Join-Path $root '.gitattributes')
+Assert-File 'Windows CI workflow' (Join-Path $root '.github\workflows\windows-ci.yml')
+Assert-File 'lightweight tests executable' (Join-Path $root "out\$Configuration\x64\WidgetMusicTests.exe")
+Assert-File 'canonical final audit' (Join-Path $root 'docs\Audit-Final-1-Juni-2026.md')
 
 if ($failures.Count -gt 0) {
   Write-Host ''
@@ -181,4 +168,4 @@ if ($failures.Count -gt 0) {
 }
 
 Write-Host ''
-Write-Host 'Widget Music goal invariants passed.'
+Write-Host 'Widget Music final invariants passed.'

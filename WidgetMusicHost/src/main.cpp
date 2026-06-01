@@ -40,6 +40,13 @@ namespace {
 std::mutex g_logMu;
 std::wstring g_logPath;
 constexpr DWORD kPipeNoClientTimeoutMs = 8000;
+constexpr int kFastRefreshWindowMs = 600;
+constexpr int kPendingPlaybackWindowMs = 450;
+constexpr int kTrackChangeWindowMs = 900;
+constexpr int kRebindFastRefreshWindowMs = 1100;
+constexpr int kFastPollIntervalMs = 70;
+constexpr int kSlowPollIntervalMs = 250;
+constexpr DWORD kMaxLogBytes = 512 * 1024;
 
 struct HostState {
   bool has_session = false;
@@ -107,6 +114,13 @@ void LogLine(std::wstring_view line) {
   if (g_logPath.empty()) return;
 
   std::lock_guard<std::mutex> lock(g_logMu);
+  WIN32_FILE_ATTRIBUTE_DATA logData{};
+  if (::GetFileAttributesExW(g_logPath.c_str(), GetFileExInfoStandard, &logData) &&
+      logData.nFileSizeHigh == 0 && logData.nFileSizeLow >= kMaxLogBytes) {
+    std::wstring previous = g_logPath + L".1";
+    (void)::DeleteFileW(previous.c_str());
+    (void)::MoveFileExW(g_logPath.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING);
+  }
   HANDLE h = ::CreateFileW(g_logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (h == INVALID_HANDLE_VALUE) return;
@@ -344,9 +358,9 @@ int64_t TimeSpanToMs(winrt::Windows::Foundation::TimeSpan ts) {
 }
 
 std::string BuildStateLine(const HostState& s) {
-  std::string app = widgetmusic::WideToUtf8(s.app);
-  std::string title = widgetmusic::WideToUtf8(s.title);
-  std::string artist = widgetmusic::WideToUtf8(s.artist);
+  std::string app = widgetmusic::WideToUtf8(widgetmusic::ClampProtocolText(s.app, widgetmusic::kMaxAppChars));
+  std::string title = widgetmusic::WideToUtf8(widgetmusic::ClampProtocolText(s.title, widgetmusic::kMaxTitleChars));
+  std::string artist = widgetmusic::WideToUtf8(widgetmusic::ClampProtocolText(s.artist, widgetmusic::kMaxArtistChars));
 
   std::string j;
   j.reserve(512);
@@ -427,27 +441,36 @@ std::string BuildHelloLine() {
   return j;
 }
 
-std::wstring CurrentUserSidString() {
+std::wstring CurrentLogonSidString() {
   HANDLE token{};
   if (!::OpenProcessToken(::GetCurrentProcess(), TOKEN_QUERY, &token)) return {};
 
   DWORD bytes = 0;
-  (void)::GetTokenInformation(token, TokenUser, nullptr, 0, &bytes);
+  (void)::GetTokenInformation(token, TokenGroups, nullptr, 0, &bytes);
   if (bytes == 0) {
     ::CloseHandle(token);
     return {};
   }
 
   std::vector<uint8_t> buf(bytes);
-  if (!::GetTokenInformation(token, TokenUser, buf.data(), bytes, &bytes)) {
+  if (!::GetTokenInformation(token, TokenGroups, buf.data(), bytes, &bytes)) {
     ::CloseHandle(token);
     return {};
   }
   ::CloseHandle(token);
 
-  auto* user = reinterpret_cast<TOKEN_USER*>(buf.data());
+  auto* groups = reinterpret_cast<TOKEN_GROUPS*>(buf.data());
+  PSID logonSid = nullptr;
+  for (DWORD i = 0; i < groups->GroupCount; ++i) {
+    if ((groups->Groups[i].Attributes & SE_GROUP_LOGON_ID) == SE_GROUP_LOGON_ID) {
+      logonSid = groups->Groups[i].Sid;
+      break;
+    }
+  }
+  if (!logonSid) return {};
+
   LPWSTR sidStr = nullptr;
-  if (!::ConvertSidToStringSidW(user->User.Sid, &sidStr)) return {};
+  if (!::ConvertSidToStringSidW(logonSid, &sidStr)) return {};
 
   std::wstring sid(sidStr);
   ::LocalFree(sidStr);
@@ -484,6 +507,10 @@ class PipeServer {
   }
 
   void SetLatestState(std::string stateLine) {
+    if (stateLine.size() > widgetmusic::kMaxPipeMessageBytes) {
+      LogLine(L"State payload rejected: exceeds IPC limit");
+      return;
+    }
     std::lock_guard<std::mutex> lock(_mu);
     if (stateLine == _latestStateLine) return;
     _latestStateLine = std::move(stateLine);
@@ -494,10 +521,12 @@ class PipeServer {
   }
 
  private:
-  SECURITY_ATTRIBUTES MakePipeSecurity(PSECURITY_DESCRIPTOR* outSd) {
+  bool MakePipeSecurity(SECURITY_ATTRIBUTES* outSa, PSECURITY_DESCRIPTOR* outSd) {
+    if (!outSa || !outSd) return false;
+    *outSa = {};
     *outSd = nullptr;
-    std::wstring sid = CurrentUserSidString();
-    if (sid.empty()) return SECURITY_ATTRIBUTES{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+    std::wstring sid = CurrentLogonSidString();
+    if (sid.empty()) return false;
 
     std::wstring sddl = L"D:P(A;;GA;;;SY)(A;;GA;;;";
     sddl += sid;
@@ -505,25 +534,30 @@ class PipeServer {
 
     PSECURITY_DESCRIPTOR sd = nullptr;
     if (!::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &sd, nullptr)) {
-      return SECURITY_ATTRIBUTES{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
+      return false;
     }
     *outSd = sd;
-    SECURITY_ATTRIBUTES sa{};
-    sa.nLength = sizeof(sa);
-    sa.lpSecurityDescriptor = sd;
-    sa.bInheritHandle = FALSE;
-    return sa;
+    outSa->nLength = sizeof(*outSa);
+    outSa->lpSecurityDescriptor = sd;
+    outSa->bInheritHandle = FALSE;
+    return true;
   }
 
   HANDLE CreateServerPipe() {
     PSECURITY_DESCRIPTOR sd = nullptr;
-    SECURITY_ATTRIBUTES sa = MakePipeSecurity(&sd);
+    SECURITY_ATTRIBUTES sa{};
+    if (!MakePipeSecurity(&sa, &sd)) {
+      LogLine(L"Pipe ACL creation failed; refusing insecure fallback");
+      return INVALID_HANDLE_VALUE;
+    }
 
     DWORD openMode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED;
     DWORD pipeMode = PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS;
 
-    HANDLE h = ::CreateNamedPipeW(widgetmusic::kPipePath, openMode, pipeMode, 1, 16 * 1024, 16 * 1024, 0,
-                                  (sa.lpSecurityDescriptor ? &sa : nullptr));
+    const std::wstring pipePath = widgetmusic::PipePathForCurrentSession();
+    HANDLE h = ::CreateNamedPipeW(pipePath.c_str(), openMode, pipeMode, 1,
+                                  static_cast<DWORD>(widgetmusic::kMaxPipeMessageBytes),
+                                  static_cast<DWORD>(widgetmusic::kMaxPipeMessageBytes), 0, &sa);
     if (sd) ::LocalFree(sd);
     return h;
   }
@@ -628,7 +662,7 @@ class PipeServer {
       }
 
       // Per-connection loop.
-      std::vector<char> buf(16 * 1024);
+      std::vector<char> buf(widgetmusic::kMaxPipeMessageBytes);
       OVERLAPPED ovRead{};
       HANDLE hReadEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
       ovRead.hEvent = hReadEvent;
@@ -772,6 +806,10 @@ class MediaSessionTracker {
       std::lock_guard<std::mutex> lock(_mu);
       _stop = true;
     }
+    {
+      std::lock_guard<std::mutex> lock(_commandMu);
+      _commandQueue.clear();
+    }
     _cv.notify_all();
     _commandCv.notify_all();
     if (_commandThread.joinable()) _commandThread.join();
@@ -839,8 +877,11 @@ class MediaSessionTracker {
     GlobalSystemMediaTransportControlsSession session{nullptr};
     std::string lastPlayback = "unknown";
     {
-      std::lock_guard<std::mutex> lock(_mu);
+      std::lock_guard<std::mutex> sessionLock(_sessionMu);
       session = _session;
+    }
+    {
+      std::lock_guard<std::mutex> lock(_mu);
       lastPlayback = _lastPlayback;
     }
 
@@ -953,7 +994,7 @@ class MediaSessionTracker {
       std::lock_guard<std::mutex> lock(_mu);
       _dirty = true;
       if (fast) {
-        _fastRefreshUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+        _fastRefreshUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(kFastRefreshWindowMs);
       }
     }
     _cv.notify_one();
@@ -962,16 +1003,17 @@ class MediaSessionTracker {
   void SetPendingPlayback(std::string playback) {
     std::lock_guard<std::mutex> lock(_mu);
     _pendingPlayback = std::move(playback);
-    _pendingPlaybackUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(700);
-    _fastRefreshUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(750);
+    _pendingPlaybackUntil =
+        std::chrono::steady_clock::now() + std::chrono::milliseconds(kPendingPlaybackWindowMs);
+    _fastRefreshUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(kFastRefreshWindowMs);
     _dirty = true;
   }
 
   void SetPendingTrackChange() {
     std::lock_guard<std::mutex> lock(_mu);
     auto now = std::chrono::steady_clock::now();
-    _trackChangeUntil = now + std::chrono::milliseconds(1400);
-    _fastRefreshUntil = now + std::chrono::milliseconds(1400);
+    _trackChangeUntil = now + std::chrono::milliseconds(kTrackChangeWindowMs);
+    _fastRefreshUntil = now + std::chrono::milliseconds(kTrackChangeWindowMs);
     _dirty = true;
   }
 
@@ -984,7 +1026,7 @@ class MediaSessionTracker {
       _lastRebindRequest = now;
       _forceRebind = true;
       _dirty = true;
-      _fastRefreshUntil = now + std::chrono::milliseconds(1500);
+      _fastRefreshUntil = now + std::chrono::milliseconds(kRebindFastRefreshWindowMs);
       shouldNotify = true;
     }
     if (shouldNotify) _cv.notify_one();
@@ -1144,24 +1186,31 @@ class MediaSessionTracker {
   }
 
   void SetSession(GlobalSystemMediaTransportControlsSession const& s) {
-    if (_session) {
+    GlobalSystemMediaTransportControlsSession previous{nullptr};
+    {
+      std::lock_guard<std::mutex> lock(_sessionMu);
+      if (_session == s) return;
+      previous = _session;
+      _session = s;
+    }
+
+    if (previous) {
       try {
-        if (_tokPlaybackChanged.value) _session.PlaybackInfoChanged(_tokPlaybackChanged);
-        if (_tokMediaPropsChanged.value) _session.MediaPropertiesChanged(_tokMediaPropsChanged);
+        if (_tokPlaybackChanged.value) previous.PlaybackInfoChanged(_tokPlaybackChanged);
+        if (_tokMediaPropsChanged.value) previous.MediaPropertiesChanged(_tokMediaPropsChanged);
       } catch (...) {
       }
     }
     _tokPlaybackChanged = {};
     _tokMediaPropsChanged = {};
-    _session = s;
     _cachedTitle.clear();
     _cachedArtist.clear();
     _uiaTitle.clear();
     _uiaArtist.clear();
     _lastUiaProbe = {};
-    if (_session) {
-      _tokPlaybackChanged = _session.PlaybackInfoChanged([this](auto&&, auto&&) { SignalUpdate(); });
-      _tokMediaPropsChanged = _session.MediaPropertiesChanged([this](auto&&, auto&&) { SignalUpdate(); });
+    if (s) {
+      _tokPlaybackChanged = s.PlaybackInfoChanged([this](auto&&, auto&&) { SignalUpdate(); });
+      _tokMediaPropsChanged = s.MediaPropertiesChanged([this](auto&&, auto&&) { SignalUpdate(); });
     }
   }
 
@@ -1234,11 +1283,17 @@ class MediaSessionTracker {
       return out;
     }
 
-    auto s = PickSession();
-    if (s != _session) {
-      SetSession(s);
+    auto picked = PickSession();
+    GlobalSystemMediaTransportControlsSession session{nullptr};
+    {
+      std::lock_guard<std::mutex> lock(_sessionMu);
+      session = _session;
     }
-    if (!_session) {
+    if (picked != session) {
+      SetSession(picked);
+      session = picked;
+    }
+    if (!session) {
       if (!tryMediaPlayerUiFallback()) (void)tryMediaPlayerWindowFallback();
       return out;
     }
@@ -1246,7 +1301,7 @@ class MediaSessionTracker {
 
     bool isMusicSession = false;
     try {
-      auto source = _session.SourceAppUserModelId();
+      auto source = session.SourceAppUserModelId();
       isMusicSession = IsMusicAumid(source);
       out.app = FriendlyAppName(source);
     } catch (...) {
@@ -1255,7 +1310,7 @@ class MediaSessionTracker {
     }
 
     try {
-      auto info = _session.GetPlaybackInfo();
+      auto info = session.GetPlaybackInfo();
       out.playback = PlaybackToString(info.PlaybackStatus());
       auto controls = info.Controls();
       out.can_prev = controls.IsPreviousEnabled();
@@ -1282,7 +1337,7 @@ class MediaSessionTracker {
     }
 
     try {
-      auto timeline = _session.GetTimelineProperties();
+      auto timeline = session.GetTimelineProperties();
       int64_t positionMs = TimeSpanToMs(timeline.Position());
       int64_t startMs = TimeSpanToMs(timeline.StartTime());
       int64_t endMs = TimeSpanToMs(timeline.EndTime());
@@ -1309,7 +1364,7 @@ class MediaSessionTracker {
     std::wstring priorCachedArtist = _cachedArtist;
 
     try {
-      auto props = _session.TryGetMediaPropertiesAsync().get();
+      auto props = session.TryGetMediaPropertiesAsync().get();
       out.title = ToWString(props.Title());
       out.artist = ToWString(props.Artist());
       mediaPropsHasMetadata = !out.title.empty() || !out.artist.empty();
@@ -1416,7 +1471,9 @@ class MediaSessionTracker {
         std::unique_lock<std::mutex> lock(_mu);
         auto now = std::chrono::steady_clock::now();
         fastActive = now < _fastRefreshUntil;
-        _cv.wait_for(lock, fastActive ? std::chrono::milliseconds(80) : std::chrono::milliseconds(250),
+        _cv.wait_for(lock,
+                     fastActive ? std::chrono::milliseconds(kFastPollIntervalMs)
+                                : std::chrono::milliseconds(kSlowPollIntervalMs),
                      [&] { return _stop || _dirty; });
         stop = _stop;
         doUpdate = _dirty;
@@ -1443,6 +1500,7 @@ class MediaSessionTracker {
   }
 
   std::mutex _mu;
+  std::mutex _sessionMu;
   std::condition_variable _cv;
   std::atomic<bool> _stopping{true};
   bool _stop = false;

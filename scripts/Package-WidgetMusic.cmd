@@ -41,6 +41,7 @@ copy /y "%ROOT%\scripts\Install-WidgetMusic.cmd" "%DIST%\Register-WidgetMusic.cm
 copy /y "%ROOT%\scripts\Uninstall-WidgetMusic.cmd" "%DIST%\Unregister-WidgetMusic.cmd" >nul
 copy /y "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1" "%DIST%\Enable-WidgetMusicTaskbar.ps1" >nul
 copy /y "%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1" "%DIST%\Invoke-WidgetMusicTaskbarEnable.ps1" >nul
+copy /y "%ROOT%\scripts\Restart-WidgetMusicExplorer.ps1" "%DIST%\Restart-WidgetMusicExplorer.ps1" >nul
 
 > "%DIST%\README.txt" echo Widget Music runtime package
 >> "%DIST%\README.txt" echo.
@@ -49,6 +50,14 @@ copy /y "%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1" "%DIST%\Invoke-Widg
 >> "%DIST%\README.txt" echo Install:   Register-WidgetMusic.cmd restart
 >> "%DIST%\README.txt" echo Optional:  Register-WidgetMusic.cmd restart auto
 >> "%DIST%\README.txt" echo Uninstall: Unregister-WidgetMusic.cmd restart
+> "%DIST%\VERSION.txt" echo 1.0.0.0
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$dist='%DIST%'; Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name } | Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii"
+if errorlevel 1 (
+  echo [Package] Could not generate SHA256SUMS.txt.
+  popd >nul
+  exit /b 1
+)
 
 for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$sum=(Get-ChildItem -LiteralPath '%DIST%' -File | Measure-Object Length -Sum).Sum; [math]::Round($sum/1KB,1)"`) do set "SIZEKB=%%S"
 

@@ -1,0 +1,29 @@
+name: windows-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Debug x64
+        shell: cmd
+        run: scripts\Build.cmd Debug
+      - name: Run Debug tests
+        shell: cmd
+        run: scripts\Run-WidgetMusicTests.cmd Debug
+      - name: Build Release x64
+        shell: cmd
+        run: scripts\Build.cmd Release
+      - name: Run Release tests
+        shell: cmd
+        run: scripts\Run-WidgetMusicTests.cmd Release
+      - name: Package Release runtime
+        shell: cmd
+        run: scripts\Package-WidgetMusic.cmd Release
+      - name: Verify final invariants
+        shell: powershell
+        run: .\scripts\Verify-WidgetMusicGoal.ps1 Release

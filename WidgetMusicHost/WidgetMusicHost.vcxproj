@@ -82,6 +82,7 @@
 
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <ResourceCompile Include="WidgetMusicHost.rc" />
   </ItemGroup>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

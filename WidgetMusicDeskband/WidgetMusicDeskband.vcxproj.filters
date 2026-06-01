@@ -4,11 +4,24 @@
     <Filter Include="Source Files">
       <UniqueIdentifier>{1DCC64F6-4279-4A5A-8B88-9D9E7D6E2A2B}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{E8DC70E5-94F8-4C82-9461-BEDBE18FA715}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{5D9C05D5-3BE4-4D81-B911-EE11DD47D7DD}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\Deskband.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\Accessibility.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ResourceCompile Include="WidgetMusicDeskband.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
 </Project>
-
