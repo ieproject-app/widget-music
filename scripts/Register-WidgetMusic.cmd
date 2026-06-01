@@ -5,7 +5,16 @@ set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=Release"
 
 set "ACTION=%~2"
-set "SKIP_ENABLE=%~3"
+set "ENABLE_MODE=%~3"
+set "FORWARD_ENABLE_MODE=%~4"
+set "INTERNAL_SKIP="
+if /i "%ENABLE_MODE%"=="skipenable" (
+  set "INTERNAL_SKIP=1"
+  set "ENABLE_MODE=%FORWARD_ENABLE_MODE%"
+)
+set "AUTO_ENABLE="
+if /i "%ENABLE_MODE%"=="auto" set "AUTO_ENABLE=1"
+if /i "%ENABLE_MODE%"=="enable" set "AUTO_ENABLE=1"
 
 set "ROOT=%~dp0.."
 pushd "%ROOT%" >nul || exit /b 1
@@ -16,51 +25,50 @@ set "ENABLE_SCRIPT=%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
 set "ENABLE_WRAPPER=%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1"
 
 if /i "%ACTION%"=="restart" (
-  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$sessionId = (Get-Process -Id $PID).SessionId; $killer = $null; if ($sessionId -ne 0) { $killer = Start-Job -ArgumentList $sessionId -ScriptBlock { param($sid) while ($true) { Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } } }; try { Get-Process WidgetMusicHost -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart skipenable; $code = $LASTEXITCODE } finally { if ($killer) { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue }; if ($sessionId -ne 0) { $explorerUp = $false; for ($i = 0; $i -lt 24; $i++) { if (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId }) { $explorerUp = $true; break }; Start-Process explorer.exe -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 350 }; if (-not $explorerUp) { Start-Process explorer.exe -ErrorAction SilentlyContinue } } }; exit $code"
+  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$sessionId = (Get-Process -Id $PID).SessionId; $killer = $null; if ($sessionId -ne 0) { $killer = Start-Job -ArgumentList $sessionId -ScriptBlock { param($sid) while ($true) { Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } } }; try { Get-Process WidgetMusicHost -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart skipenable '%ENABLE_MODE%'; $code = $LASTEXITCODE } finally { if ($killer) { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue }; if ($sessionId -ne 0) { $explorerUp = $false; for ($i = 0; $i -lt 24; $i++) { if (Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sessionId }) { $explorerUp = $true; break }; Start-Process explorer.exe -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 350 }; if (-not $explorerUp) { Start-Process explorer.exe -ErrorAction SilentlyContinue } } }; exit $code"
   set "ERR=%ERRORLEVEL%"
   if not errorlevel 1 (
-    echo [Register] Ensuring Widget Music is shown after Explorer restart...
-    set "ENABLE_OK="
-    set "ENABLE_TIMED_OUT="
-    for /l %%I in (1,1,10) do (
-      call :run_enable
-      set "ENABLE_EXIT=!ERRORLEVEL!"
-      if "!ENABLE_EXIT!"=="0" (
-        set "ENABLE_OK=1"
-        goto :after_restart_enable
-      )
-      if "!ENABLE_EXIT!"=="2" (
-        set "ENABLE_TIMED_OUT=1"
-        goto :after_restart_enable
-      )
-      "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
-    )
-
-    if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
-      echo [Register] Retrying after one more Explorer restart...
-      "%PS%" -NoProfile -Command "$sid = (Get-Process -Id $PID).SessionId; Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; if ($sid -ne 0) { Start-Process explorer.exe -ErrorAction SilentlyContinue }" >nul 2>nul
-      "%PS%" -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>nul
+    if defined AUTO_ENABLE (
+      echo [Register] Ensuring Widget Music is shown after Explorer restart...
+      set "ENABLE_OK="
+      set "ENABLE_TIMED_OUT="
       for /l %%I in (1,1,10) do (
-        call :run_enable
-        set "ENABLE_EXIT=!ERRORLEVEL!"
-        if "!ENABLE_EXIT!"=="0" (
-          set "ENABLE_OK=1"
-          goto :after_restart_enable
+        if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
+          call :run_enable
+          set "ENABLE_EXIT=!ERRORLEVEL!"
+          if "!ENABLE_EXIT!"=="0" set "ENABLE_OK=1"
+          if "!ENABLE_EXIT!"=="2" set "ENABLE_TIMED_OUT=1"
+          if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
+            "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+          )
         )
-        if "!ENABLE_EXIT!"=="2" (
-          set "ENABLE_TIMED_OUT=1"
-          goto :after_restart_enable
+      )
+
+      if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
+        echo [Register] Retrying after one more Explorer restart...
+        "%PS%" -NoProfile -Command "$sid = (Get-Process -Id $PID).SessionId; Get-Process explorer -ErrorAction SilentlyContinue | Where-Object { $_.SessionId -eq $sid } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; if ($sid -ne 0) { Start-Process explorer.exe -ErrorAction SilentlyContinue }" >nul 2>nul
+        "%PS%" -NoProfile -Command "Start-Sleep -Seconds 2" >nul 2>nul
+        for /l %%I in (1,1,10) do (
+          if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
+            call :run_enable
+            set "ENABLE_EXIT=!ERRORLEVEL!"
+            if "!ENABLE_EXIT!"=="0" set "ENABLE_OK=1"
+            if "!ENABLE_EXIT!"=="2" set "ENABLE_TIMED_OUT=1"
+            if not defined ENABLE_OK if not defined ENABLE_TIMED_OUT (
+              "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+            )
+          )
         )
-        "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
       )
-    )
-:after_restart_enable
-    if not defined ENABLE_OK (
-      if defined ENABLE_TIMED_OUT (
-        echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
-      ) else (
-        echo [Register] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+      if not defined ENABLE_OK (
+        if defined ENABLE_TIMED_OUT (
+          echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
+        ) else (
+          echo [Register] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+        )
       )
+    ) else (
+      echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
     )
   )
   popd >nul
@@ -94,7 +102,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if /i not "%SKIP_ENABLE%"=="skipenable" (
+if defined INTERNAL_SKIP (
+  echo [Register] Auto-enable deferred until Explorer restart completes.
+) else if defined AUTO_ENABLE (
   echo [Register] Enabling Widget Music on taskbar...
   call :run_enable
   set "ENABLE_EXIT=%ERRORLEVEL%"
@@ -104,7 +114,7 @@ if /i not "%SKIP_ENABLE%"=="skipenable" (
     echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
   )
 ) else (
-  echo [Register] Auto-enable deferred until Explorer restart completes.
+  echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
 )
 
 if /i "%ACTION%"=="restart" (

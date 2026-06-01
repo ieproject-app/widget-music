@@ -45,12 +45,19 @@ Register deskband + restart Explorer (direkomendasikan agar toolbar muncul):
 .\scripts\Register-WidgetMusic.cmd Release restart
 ```
 
+Opsional, jika ingin script mencoba menampilkan toolbar otomatis:
+
+```bat
+.\scripts\Register-WidgetMusic.cmd Release restart auto
+```
+
 Lalu aktifkan:
 
 `Right click taskbar > Toolbars > Widget Music`
 
 Catatan:
-* Script akan mencoba auto-enable toolbar secara non-blocking (dengan timeout), jadi proses tidak akan macet jika dialog konfirmasi Windows muncul.
+* Default sekarang non-interactive: script tidak auto-enable toolbar kecuali diberi flag `auto`/`enable`.
+* Jika pakai mode `auto`, script memakai timeout agar proses tidak macet saat dialog konfirmasi Windows muncul.
 * Jika toolbar belum terlihat, aktifkan manual dari menu Toolbars.
 * Kadang menu Toolbars perlu dibuka dua kali setelah register.
 

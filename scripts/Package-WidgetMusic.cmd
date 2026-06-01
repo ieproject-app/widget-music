@@ -47,6 +47,7 @@ copy /y "%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1" "%DIST%\Invoke-Widg
 >> "%DIST%\README.txt" echo Files in this folder are the runtime package. PDB and intermediate build files stay in out\%CONFIG%\x64 for developer diagnostics.
 >> "%DIST%\README.txt" echo.
 >> "%DIST%\README.txt" echo Install:   Register-WidgetMusic.cmd restart
+>> "%DIST%\README.txt" echo Optional:  Register-WidgetMusic.cmd restart auto
 >> "%DIST%\README.txt" echo Uninstall: Unregister-WidgetMusic.cmd restart
 
 for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command "$sum=(Get-ChildItem -LiteralPath '%DIST%' -File | Measure-Object Length -Sum).Sum; [math]::Round($sum/1KB,1)"`) do set "SIZEKB=%%S"
