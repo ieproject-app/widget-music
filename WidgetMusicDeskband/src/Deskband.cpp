@@ -1828,6 +1828,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     std::wstring popupTrack = BuildTrackPopupText(current);
     const bool primaryChanged = primary != _lastPrimaryText;
     const bool popupTrackChanged = popupTrack != _lastTrackPopupText;
+    const bool playbackChanged = current.playback != _lastPlaybackState;
     if (IsCompactMode() && primaryChanged && !primary.empty()) {
       StartCompactTitleReveal(primary);
     } else if (IsCompactMode() && !popupTrack.empty() && !_lastTrackPopupText.empty() && popupTrackChanged) {
@@ -1835,6 +1836,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
     _lastPrimaryText = primary;
     _lastTrackPopupText = popupTrack;
+    _lastPlaybackState = current.playback;
     UpdateProgressTimerState(current);
 
     if (_hwnd) {
@@ -1864,8 +1866,11 @@ class WidgetMusicDeskband final : public IDeskBand2,
       RECT dirty{};
       bool hasDirty = false;
       if (IsFullMode()) {
-        addRect(&dirty, &hasDirty, _seekRc);
-        if (primaryChanged) addRect(&dirty, &hasDirty, _textRc);
+        const bool skipSeekInvalidateForMarquee =
+            _marqueeActive && _progressTimerOn && current.has_timeline && current.playback == "playing" &&
+            !primaryChanged && !playbackChanged;
+        if (!skipSeekInvalidateForMarquee) addRect(&dirty, &hasDirty, _seekRc);
+        if (primaryChanged || playbackChanged) addRect(&dirty, &hasDirty, _textRc);
       } else if (primaryChanged || popupTrackChanged) {
         addRect(&dirty, &hasDirty, _textRc);
       }
@@ -2555,6 +2560,27 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return width;
   }
 
+  void MeasureTitleCardTextWidths(HDC hdc, HFONT font, int* headlineW, int* sublineW) {
+    if (headlineW) *headlineW = 0;
+    if (sublineW) *sublineW = 0;
+    if (!hdc || !font) return;
+
+    int dpiY = ::GetDeviceCaps(hdc, LOGPIXELSY);
+    if (dpiY <= 0) dpiY = 96;
+
+    if (_cachedTitleCardMeasureDpiY != dpiY || _cachedTitleCardHeadline != _titleCardHeadline ||
+        _cachedTitleCardSubline != _titleCardSubline) {
+      _cachedTitleCardMeasureDpiY = dpiY;
+      _cachedTitleCardHeadline = _titleCardHeadline;
+      _cachedTitleCardSubline = _titleCardSubline;
+      _cachedTitleCardHeadlineWidth = MeasureTextWidth(hdc, font, _titleCardHeadline);
+      _cachedTitleCardSublineWidth = MeasureTextWidth(hdc, font, _titleCardSubline);
+    }
+
+    if (headlineW) *headlineW = _cachedTitleCardHeadlineWidth;
+    if (sublineW) *sublineW = _cachedTitleCardSublineWidth;
+  }
+
   int ScaleForDpi(int value, int dpiY) const {
     if (value <= 0) return value;
     if (dpiY <= 0) dpiY = 96;
@@ -2587,8 +2613,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
     const int maxCardW = min(kCompactTitlePopupMaxWidth, clientW - 8);
     if (maxCardW < 120) return;
 
-    int headlineW = MeasureTextWidth(mem, baseFont, _titleCardHeadline);
-    int sublineW = MeasureTextWidth(mem, baseFont, _titleCardSubline);
+    int headlineW = 0;
+    int sublineW = 0;
+    MeasureTitleCardTextWidths(mem, baseFont, &headlineW, &sublineW);
     int textW = max(headlineW, sublineW);
     int cardW = min(maxCardW, max(128, (padX * 2) + badgeSize + gap + textW));
     int cardH = _titleCardSubline.empty() ? 30 : 40;
@@ -2889,6 +2916,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
     RECT textRcClipped{};
     const bool hasTextRc = ::IntersectRect(&textRcClipped, &_textRc, &rc) != FALSE;
     const bool textOnlyPaint = !hdcIn && hasTextRc && RectContains(textRcClipped, dirtyRc);
+    RECT seekRcClipped{};
+    const bool hasSeekRc = ::IntersectRect(&seekRcClipped, &_seekRc, &rc) != FALSE;
+    const bool seekOnlyPaint = !hdcIn && hasSeekRc && RectContains(seekRcClipped, dirtyRc);
     const RECT repaintRc = hdcIn ? rc : dirtyRc;
 
     if (!EnsureBackBuffer(hdc, w, h)) {
@@ -2971,7 +3001,6 @@ class WidgetMusicDeskband final : public IDeskBand2,
     ::SetBkMode(mem, TRANSPARENT);
 
     // Text
-    std::wstring text = BuildPrimaryText(s);
     HFONT hTextFont = EnsureTextFont(hdc);
     int dpiY = ::GetDeviceCaps(hdc, LOGPIXELSY);
     if (dpiY <= 0) dpiY = 96;
@@ -2980,25 +3009,28 @@ class WidgetMusicDeskband final : public IDeskBand2,
     const int glyphInsetPx = max(3, ScaleForDpi(3, dpiY));
     const float ringWidthPx = highContrast ? 1.0f : max(kPlayRingWidth, static_cast<float>(dpiY) / 64.0f);
     HGDIOBJ oldFont = hTextFont ? ::SelectObject(mem, hTextFont) : nullptr;
-    ::SetTextColor(mem, fg);
-    RECT tr = _textRc;
-    if (tr.right > tr.left) {
-      const int areaWidth = tr.right - tr.left;
-      const int textWidth = MeasurePrimaryTextWidth(mem, hTextFont, text);
-      const bool allowMarquee =
-          IsFullMode() && s.playback == "playing" && textWidth > (areaWidth + 8) && !_hoverTitlePopupActive;
-      ConfigureMarquee(allowMarquee, textWidth, areaWidth, text);
-      bool marqueeDrawn = false;
-      if (allowMarquee) marqueeDrawn = DrawMarqueeStrip(mem, tr);
-      if (!marqueeDrawn) {
-        ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
-                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    if (!seekOnlyPaint) {
+      std::wstring text = BuildPrimaryText(s);
+      ::SetTextColor(mem, fg);
+      RECT tr = _textRc;
+      if (tr.right > tr.left) {
+        const int areaWidth = tr.right - tr.left;
+        const int textWidth = MeasurePrimaryTextWidth(mem, hTextFont, text);
+        const bool allowMarquee =
+            IsFullMode() && s.playback == "playing" && textWidth > (areaWidth + 8) && !_hoverTitlePopupActive;
+        ConfigureMarquee(allowMarquee, textWidth, areaWidth, text);
+        bool marqueeDrawn = false;
+        if (allowMarquee) marqueeDrawn = DrawMarqueeStrip(mem, tr);
+        if (!marqueeDrawn) {
+          ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
+                      DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+        }
+      } else {
+        ConfigureMarquee(false, 0, 0, L"");
       }
-    } else {
-      ConfigureMarquee(false, 0, 0, L"");
     }
 
-    if (IsFullMode() && _seekRc.right > _seekRc.left) {
+    if (!textOnlyPaint && IsFullMode() && _seekRc.right > _seekRc.left) {
       RECT track = _seekRc;
       int midY = (_seekRc.top + _seekRc.bottom) / 2;
       track.top = midY - (kSeekTrackHeight / 2);
@@ -3051,7 +3083,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       }
     }
 
-    if (!textOnlyPaint) {
+    if (!textOnlyPaint && !seekOnlyPaint) {
       // Buttons
       const bool gpReady = EnsureGdiplus();
       Gdiplus::Graphics graphics(mem);
@@ -3287,7 +3319,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
       drawBtn(_btnNext);
     }
 
-    DrawTitleCardOverlay(mem, rc, hTextFont, panelFill, fg, accent, highContrast, lightForeground);
+    if (!textOnlyPaint && !seekOnlyPaint) {
+      DrawTitleCardOverlay(mem, rc, hTextFont, panelFill, fg, accent, highContrast, lightForeground);
+    }
 
     if (savedDc != 0) ::RestoreDC(mem, savedDc);
 
@@ -3388,9 +3422,15 @@ class WidgetMusicDeskband final : public IDeskBand2,
   std::wstring _titleCardBadge;
   std::wstring _lastPrimaryText;
   std::wstring _lastTrackPopupText;
+  std::string _lastPlaybackState;
   std::wstring _cachedPrimaryMeasureText;
   int _cachedPrimaryMeasureWidth = 0;
   int _cachedPrimaryMeasureDpiY = 0;
+  std::wstring _cachedTitleCardHeadline;
+  std::wstring _cachedTitleCardSubline;
+  int _cachedTitleCardHeadlineWidth = 0;
+  int _cachedTitleCardSublineWidth = 0;
+  int _cachedTitleCardMeasureDpiY = 0;
   BandDisplayMode _bandMode = BandDisplayMode::Compact;
 
   bool _marqueeTimerOn = false;
