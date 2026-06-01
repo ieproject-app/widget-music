@@ -61,8 +61,8 @@ constexpr DWORD kVisibleAuditDuringMarqueeMinIntervalMs = 1200;
 constexpr DWORD kCompactTitleRevealMs = 3200;
 constexpr DWORD kTitleHoverIntentDelayMs = 260;
 constexpr DWORD kTitleSuppressAfterClickMs = 1400;
-constexpr DWORD kTitleCardFadeInMs = 120;
-constexpr DWORD kTitleCardFadeOutMs = 160;
+constexpr DWORD kTitleCardFadeInMs = 170;
+constexpr DWORD kTitleCardFadeOutMs = 220;
 constexpr DWORD kStartupPipeDelayMs = 7000;
 constexpr int kFullPad = 16;
 constexpr int kCompactTitlePopupMaxWidth = 280;
@@ -1528,8 +1528,36 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _titleCardAnimTimerOn = false;
   }
 
+  void InvalidateTitleCardRegion(const RECT* previousCard = nullptr) {
+    if (!_hwnd) return;
+
+    RECT dirty{};
+    bool hasDirty = false;
+    auto mergeRect = [&](RECT src) {
+      if (src.right <= src.left || src.bottom <= src.top) return;
+      ::InflateRect(&src, 8, 8);
+      if (!hasDirty) {
+        dirty = src;
+        hasDirty = true;
+      } else {
+        ::UnionRect(&dirty, &dirty, &src);
+      }
+    };
+
+    if (previousCard) mergeRect(*previousCard);
+    mergeRect(_titleCardRc);
+    if (!hasDirty) mergeRect(_textRc);
+
+    if (hasDirty) {
+      ::InvalidateRect(_hwnd, &dirty, FALSE);
+    } else {
+      ::InvalidateRect(_hwnd, nullptr, FALSE);
+    }
+  }
+
   void StartTitleCardAnimation(BYTE targetAlpha) {
     if (!_hwnd) return;
+    RECT previousCard = _titleCardRc;
     _titleCardAnimFromAlpha = _titleCardAlpha;
     _titleCardAnimToAlpha = targetAlpha;
     _titleCardAnimStartTick = ::GetTickCount();
@@ -1540,7 +1568,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _titleCardAlpha = targetAlpha;
       StopTitleCardAnimTimer();
     }
-    ::InvalidateRect(_hwnd, nullptr, FALSE);
+    InvalidateTitleCardRegion(&previousCard);
   }
 
   void SplitTitleCardText(const std::wstring& text, std::wstring* headline, std::wstring* subline) {
@@ -1595,6 +1623,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       StopTitleCardAnimTimer();
       return;
     }
+    RECT previousCard = _titleCardRc;
 
     const DWORD now = ::GetTickCount();
     const DWORD elapsed = now - _titleCardAnimStartTick;
@@ -1614,7 +1643,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _titleCardBadge.clear();
       _compactTitleText.clear();
     }
-    ::InvalidateRect(_hwnd, nullptr, FALSE);
+    InvalidateTitleCardRegion(&previousCard);
   }
 
   void OnTitleHoverIntentTimer() {
@@ -1640,6 +1669,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _compactTitlePopupVisible = false;
     _hoverTitlePopupActive = false;
     if (clearText) {
+      RECT previousCard = _titleCardRc;
       _titleCardAlpha = 0;
       _titleCardAnimFromAlpha = 0;
       _titleCardAnimToAlpha = 0;
@@ -1648,7 +1678,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _titleCardSubline.clear();
       _titleCardBadge.clear();
       _compactTitleText.clear();
-      if (_hwnd) ::InvalidateRect(_hwnd, nullptr, FALSE);
+      _titleCardRc = {};
+      if (_hwnd) InvalidateTitleCardRegion(&previousCard);
       return;
     }
     StartTitleCardAnimation(0);
@@ -2396,6 +2427,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
   std::wstring BuildPrimaryText(const BandState& s) {
     if (IsFullMode()) {
+      std::wstring primary = PrimaryTextForState(s);
+      if (s.connected && s.has_session && !primary.empty()) return primary;
       DWORD now = ::GetTickCount();
       std::wstring progress = BuildProgressText(s, now);
       if (!progress.empty()) return progress;
@@ -2420,7 +2453,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
                             COLORREF accent,
                             bool highContrast,
                             bool lightForeground) {
-    if (!mem || !baseFont || _titleCardAlpha == 0 || _titleCardHeadline.empty()) return;
+    if (!mem || !baseFont || _titleCardAlpha == 0 || _titleCardHeadline.empty()) {
+      _titleCardRc = {};
+      return;
+    }
     const int clientW = clientRc.right - clientRc.left;
     const int clientH = clientRc.bottom - clientRc.top;
     if (clientW <= 0 || clientH <= 0) return;
@@ -2826,11 +2862,19 @@ class WidgetMusicDeskband final : public IDeskBand2,
     ::SetTextColor(mem, fg);
     RECT tr = _textRc;
     if (tr.right > tr.left) {
-      StopMarqueeTimer(false);
-      ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
-                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+      const int areaWidth = tr.right - tr.left;
+      const int textWidth = MeasureTextWidth(mem, hTextFont, text);
+      const bool allowMarquee =
+          IsFullMode() && s.playback == "playing" && textWidth > (areaWidth + 8) && !_hoverTitlePopupActive;
+      ConfigureMarquee(allowMarquee, textWidth, areaWidth, text);
+      bool marqueeDrawn = false;
+      if (allowMarquee) marqueeDrawn = DrawMarqueeStrip(mem, tr);
+      if (!marqueeDrawn) {
+        ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
+                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+      }
     } else {
-      StopMarqueeTimer(false);
+      ConfigureMarquee(false, 0, 0, L"");
     }
 
     if (IsFullMode() && _seekRc.right > _seekRc.left) {
