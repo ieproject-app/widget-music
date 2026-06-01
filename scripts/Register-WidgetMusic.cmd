@@ -5,13 +5,33 @@ set "CONFIG=%~1"
 if "%CONFIG%"=="" set "CONFIG=Release"
 
 set "ACTION=%~2"
+set "SKIP_ENABLE=%~3"
 
 set "ROOT=%~dp0.."
 pushd "%ROOT%" >nul || exit /b 1
 
+set "PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+if exist "%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe" set "PS=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"
+
 if /i "%ACTION%"=="restart" (
-  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$killer = Start-Job -ScriptBlock { while ($true) { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } }; try { Stop-Process -Name WidgetMusicHost -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart; $code = $LASTEXITCODE } finally { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe }; exit $code"
+  "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "$killer = Start-Job -ScriptBlock { while ($true) { Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 100 } }; try { Stop-Process -Name WidgetMusicHost -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; & '%~f0' '%CONFIG%' norestart skipenable; $code = $LASTEXITCODE } finally { Stop-Job $killer -ErrorAction SilentlyContinue; Remove-Job $killer -Force -ErrorAction SilentlyContinue; Start-Process explorer.exe }; exit $code"
   set "ERR=%ERRORLEVEL%"
+  if not errorlevel 1 (
+    echo [Register] Ensuring Widget Music is shown after Explorer restart...
+    set "ENABLE_OK="
+    for /l %%I in (1,1,6) do (
+      "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
+      if not errorlevel 1 (
+        set "ENABLE_OK=1"
+        goto :after_restart_enable
+      )
+      "%PS%" -NoProfile -Command "Start-Sleep -Seconds 1" >nul 2>nul
+    )
+:after_restart_enable
+    if not defined ENABLE_OK (
+      echo [Register] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+    )
+  )
   popd >nul
   exit /b %ERR%
 )
@@ -35,9 +55,6 @@ if not exist "%DLL%" (
 set "REGSVR=%SystemRoot%\\System32\\regsvr32.exe"
 if exist "%SystemRoot%\\Sysnative\\regsvr32.exe" set "REGSVR=%SystemRoot%\\Sysnative\\regsvr32.exe"
 
-set "PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-if exist "%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe" set "PS=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"
-
 echo [Register] Registering "%DLL%" (per-user)...
 "%REGSVR%" /s "%DLL%"
 if errorlevel 1 (
@@ -46,10 +63,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo [Register] Enabling Widget Music on taskbar...
-"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
-if errorlevel 1 (
-  echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+if /i not "%SKIP_ENABLE%"=="skipenable" (
+  echo [Register] Enabling Widget Music on taskbar...
+  "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1"
+  if errorlevel 1 (
+    echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+  )
+) else (
+  echo [Register] Auto-enable deferred until Explorer restart completes.
 )
 
 if /i "%ACTION%"=="restart" (
