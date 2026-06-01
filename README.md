@@ -17,6 +17,7 @@ Prasyarat:
 
 * Visual Studio Build Tools (Desktop development with C++) - VS 2022 atau lebih baru
 * Windows 10 SDK (10.0.x)
+* Inno Setup 6, hanya jika ingin membuat installer `.exe`
 
 Build x64 Release:
 
@@ -36,6 +37,36 @@ Folder build Release juga berisi PDB dan intermediate file untuk debugging, jadi
 ```
 
 Paket kecil ada di `out\dist\WidgetMusic`. Paket membawa DLL, EXE, script runtime, `VERSION.txt`, dan `SHA256SUMS.txt`.
+
+Untuk membuat installer Windows 10 x64:
+
+```bat
+.\scripts\Build-Installer.cmd Release
+```
+
+Output installer ada di:
+
+`out\dist\WidgetMusicSetup-1.0.0-x64.exe`
+
+Script installer juga memeriksa agar binary Release tidak bergantung pada runtime Visual C++ dinamis seperti `MSVCP140.dll` dan `VCRUNTIME140*.dll`.
+
+## Install dari Installer
+
+Jalankan `WidgetMusicSetup-1.0.0-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\WidgetMusic`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
+
+Jika toolbar belum terlihat setelah install, aktifkan manual dari:
+
+`Right click taskbar > Toolbars > Widget Music`
+
+Uninstall dari Apps & Features atau Control Panel akan unregister DeskBand dan me-restart Explorer sebelum file dihapus.
+
+## Update dari Installer
+
+Untuk update versi berikutnya, naikkan versi aplikasi di resource/installer, build installer baru, lalu jalankan installer `.exe` baru di laptop yang sama. Karena installer memakai AppId yang sama, Inno Setup akan memperbarui instalasi yang sudah ada di `%LOCALAPPDATA%\WidgetMusic`.
+
+Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `WidgetMusicSetup-1.0.1-x64.exe`.
+
+Panduan update/release yang lebih lengkap ada di `docs\Panduan-Update-Release.md`. Alur GitHub Release ada di `docs\GitHub-Release-Process.md`.
 
 ## Install / Register
 

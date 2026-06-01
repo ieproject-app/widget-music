@@ -1413,17 +1413,26 @@ class WidgetMusicDeskband final : public IDeskBand2,
   long AccessibleFocusedButton() const override { return _focusedButton; }
 
   void AccessibleFocusButton(long childId) override {
+    FocusAccessibleButton(childId, true);
+  }
+
+  bool AccessibleInvokeButton(long childId) override {
+    return InvokeButton(childId, true);
+  }
+
+  void FocusAccessibleButton(long childId, bool showKeyboardFocus) {
     if (!ButtonForAccessibleId(childId)) return;
     _focusedButton = childId;
+    _showKeyboardFocus = showKeyboardFocus;
     if (_hwnd) ::SetFocus(_hwnd);
     NotifyAccessibleFocus();
     InvalidateButtons();
   }
 
-  bool AccessibleInvokeButton(long childId) override {
+  bool InvokeButton(long childId, bool showKeyboardFocus) {
     Button* button = ButtonForAccessibleId(childId);
     if (!button || !button->enabled) return false;
-    AccessibleFocusButton(childId);
+    FocusAccessibleButton(childId, showKeyboardFocus);
     if (childId == widgetmusic::kAccessiblePrevious) {
       SendCommand("previous");
       return true;
@@ -1446,11 +1455,11 @@ class WidgetMusicDeskband final : public IDeskBand2,
       long next = _focusedButton + (key == VK_LEFT ? -1 : 1);
       if (next < widgetmusic::kAccessiblePrevious) next = widgetmusic::kAccessibleNext;
       if (next > widgetmusic::kAccessibleNext) next = widgetmusic::kAccessiblePrevious;
-      AccessibleFocusButton(next);
+      FocusAccessibleButton(next, true);
       return true;
     }
     if (key == VK_RETURN || key == VK_SPACE) {
-      (void)AccessibleInvokeButton(_focusedButton);
+      (void)InvokeButton(_focusedButton, true);
       return true;
     }
     return false;
@@ -2211,7 +2220,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     POINT pt{ x, y };
     _lastMousePoint = pt;
     const long focused = AccessibleIdAtPoint(pt);
-    if (focused != 0) AccessibleFocusButton(focused);
+    if (focused != 0) FocusAccessibleButton(focused, false);
     UpdateHotButtons(pt);
     if (_btnPrev.enabled && ::PtInRect(&_btnPrev.rc, pt)) _btnPrev.pressed = true;
     if (_btnPlayPause.enabled && ::PtInRect(&_btnPlayPause.rc, pt)) _btnPlayPause.pressed = true;
@@ -2319,15 +2328,15 @@ class WidgetMusicDeskband final : public IDeskBand2,
     InvalidateButtons();
 
     if (wasPressedPrev && _btnPrev.enabled && ::PtInRect(&_btnPrev.rc, pt)) {
-      (void)AccessibleInvokeButton(widgetmusic::kAccessiblePrevious);
+      (void)InvokeButton(widgetmusic::kAccessiblePrevious, false);
       return;
     }
     if (wasPressedNext && _btnNext.enabled && ::PtInRect(&_btnNext.rc, pt)) {
-      (void)AccessibleInvokeButton(widgetmusic::kAccessibleNext);
+      (void)InvokeButton(widgetmusic::kAccessibleNext, false);
       return;
     }
     if (wasPressedPP && _btnPlayPause.enabled && ::PtInRect(&_btnPlayPause.rc, pt)) {
-      (void)AccessibleInvokeButton(widgetmusic::kAccessiblePlayPause);
+      (void)InvokeButton(widgetmusic::kAccessiblePlayPause, false);
       return;
     }
   }
@@ -2803,7 +2812,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       COLORREF fillCol = b.enabled ? buttonFill : Blend(buttonFill, panelFill, 120);
       RECT r = b.rc;
       if (r.right <= r.left || r.bottom <= r.top) return;
-      const bool keyboardFocused = (::GetFocus() == _hwnd) && (ButtonForAccessibleId(_focusedButton) == &b);
+      const bool keyboardFocused = _showKeyboardFocus && (::GetFocus() == _hwnd) && (ButtonForAccessibleId(_focusedButton) == &b);
       auto drawKeyboardFocus = [&]() {
         if (!keyboardFocused) return;
         RECT focusRc = r;
@@ -2905,6 +2914,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   HWND _compactTitlePopup = nullptr;
   widgetmusic::AccessibleButtons* _accessibleButtons = nullptr;
   long _focusedButton = widgetmusic::kAccessiblePlayPause;
+  bool _showKeyboardFocus = false;
 
   PipeClient _pipe;
 

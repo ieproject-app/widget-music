@@ -63,6 +63,13 @@ $register = Read-Source 'scripts\Register-WidgetMusic.cmd'
 $install = Read-Source 'scripts\Install-WidgetMusic.cmd'
 $unregister = Read-Source 'scripts\Unregister-WidgetMusic.cmd'
 $uninstall = Read-Source 'scripts\Uninstall-WidgetMusic.cmd'
+$deskbandProject = Read-Source 'WidgetMusicDeskband\WidgetMusicDeskband.vcxproj'
+$hostProjectFile = Read-Source 'WidgetMusicHost\WidgetMusicHost.vcxproj'
+$installer = Read-Source 'installer\WidgetMusic.iss'
+$buildInstaller = Read-Source 'scripts\Build-Installer.cmd'
+$dependencyCheck = Read-Source 'scripts\Check-RuntimeDependencies.ps1'
+$workflow = Read-Source '.github\workflows\windows-ci.yml'
+$releaseWorkflow = Read-Source '.github\workflows\windows-release.yml'
 
 $buildDir = Join-Path $root "out\$Configuration\x64"
 $distDir = Join-Path $root 'out\dist\WidgetMusic'
@@ -118,6 +125,8 @@ Assert-Match 'keyboard path handles arrows and activation keys' $deskband '(?s)c
 Assert-Match 'deskband publishes MSAA through WM_GETOBJECT' $deskband '(?s)case WM_GETOBJECT:.*?OBJID_CLIENT.*?LresultFromObject\(IID_IAccessible'
 Assert-Match 'deskband emits accessibility state events' $deskband 'NotifyWinEvent\(EVENT_OBJECT_STATECHANGE'
 Assert-Match 'focus ring uses Windows focus drawing' $deskband 'DrawFocusRect\(mem,\s*&focusRc\)'
+Assert-Match 'mouse activation suppresses visual focus ring' $deskband '(?s)OnMouseDown.*?FocusAccessibleButton\(focused,\s*false\).*?OnMouseUp.*?InvokeButton\(widgetmusic::kAccessiblePlayPause,\s*false\)'
+Assert-Match 'keyboard activation keeps visual focus ring' $deskband '(?s)OnKeyDown.*?FocusAccessibleButton\(next,\s*true\).*?InvokeButton\(_focusedButton,\s*true\)'
 Assert-Match 'MSAA exposes three virtual children' $accessibility 'kAccessibleButtonCount = 3'
 Assert-Match 'MSAA exposes push-button roles' $accessibility 'ROLE_SYSTEM_PUSHBUTTON'
 
@@ -141,6 +150,27 @@ Assert-Match 'host rotates logs above 512 KB' $hostSource 'kMaxLogBytes = 512 \*
 Assert-Match 'packager copies scoped Explorer restart helper' $package 'Restart-WidgetMusicExplorer\.ps1'
 Assert-Match 'packager writes VERSION.txt' $package 'VERSION\.txt'
 Assert-Match 'packager writes SHA256SUMS.txt' $package 'SHA256SUMS\.txt'
+Assert-Match 'deskband Release links static VC runtime' $deskbandProject '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
+Assert-Match 'host Release links static VC runtime' $hostProjectFile '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
+Assert-Match 'installer targets per-user LocalAppData' $installer 'DefaultDirName=\{localappdata\}\\WidgetMusic'
+Assert-Match 'installer is limited to x64 Windows' $installer 'ArchitecturesAllowed=x64os'
+Assert-Match 'installer registers deskband after install' $installer 'Register-WidgetMusic\.cmd"; Parameters: "restart auto"'
+Assert-Match 'installer unregisters deskband during uninstall' $installer 'Unregister-WidgetMusic\.cmd"; Parameters: "restart"'
+Assert-Match 'installer unregisters existing install before update' $installer '(?s)PrepareToInstall.*?Unregister-WidgetMusic\.cmd.*?Exec\(UnregisterScript,\s*''restart'''
+Assert-Match 'installer output filename is stable' $installer 'OutputBaseFilename=WidgetMusicSetup-\{#MyAppVersion\}-x64'
+Assert-Match 'installer build invokes runtime packager' $buildInstaller 'Package-WidgetMusic\.cmd'
+Assert-Match 'installer build checks runtime dependencies' $buildInstaller 'Check-RuntimeDependencies\.ps1'
+Assert-Match 'installer build reports missing Inno Setup' $buildInstaller 'Inno Setup 6 was not found'
+Assert-Match 'dependency checker blocks MSVCP140' $dependencyCheck 'MSVCP140\.dll'
+Assert-Match 'dependency checker blocks VCRUNTIME140' $dependencyCheck 'VCRUNTIME140_1?\.dll'
+Assert-Match 'workflow checks runtime dependencies' $workflow 'Check-RuntimeDependencies\.ps1'
+Assert-Match 'workflow can upload installer artifact' $workflow 'WidgetMusicSetup-\*\.exe'
+Assert-Match 'release workflow runs on version tags' $releaseWorkflow 'tags:\s*(?s).*?v\*\.\*\.\*'
+Assert-Match 'release workflow installs Inno Setup' $releaseWorkflow 'choco install innosetup'
+Assert-Match 'release workflow builds installer' $releaseWorkflow 'Build-Installer\.cmd Release'
+Assert-Match 'release workflow creates runtime zip' $releaseWorkflow 'WidgetMusic-\$version-runtime\.zip'
+Assert-Match 'release workflow creates checksum asset' $releaseWorkflow 'SHA256SUMS\.txt'
+Assert-Match 'release workflow publishes draft release' $releaseWorkflow '(?s)gh release create.*?--draft'
 Assert-Match 'restart helper scopes Explorer operations by session' $restart '(?s)\$sessionId = \(Get-Process -Id \$PID\)\.SessionId.*?Where-Object \{ \$_.SessionId -eq \$sessionId \}'
 Assert-Match 'restart helper scopes host shutdown by session' $restart 'Stop-SessionProcess -Name ''WidgetMusicHost'''
 foreach ($script in @(
@@ -155,6 +185,7 @@ foreach ($script in @(
 
 Assert-File '.gitattributes' (Join-Path $root '.gitattributes')
 Assert-File 'Windows CI workflow' (Join-Path $root '.github\workflows\windows-ci.yml')
+Assert-File 'Windows release workflow' (Join-Path $root '.github\workflows\windows-release.yml')
 Assert-File 'lightweight tests executable' (Join-Path $root "out\$Configuration\x64\WidgetMusicTests.exe")
 Assert-File 'canonical final audit' (Join-Path $root 'docs\Audit-Final-1-Juni-2026.md')
 

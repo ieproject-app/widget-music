@@ -24,6 +24,32 @@ jobs:
       - name: Package Release runtime
         shell: cmd
         run: scripts\Package-WidgetMusic.cmd Release
+      - name: Check runtime dependencies
+        shell: powershell
+        run: .\scripts\Check-RuntimeDependencies.ps1
       - name: Verify final invariants
         shell: powershell
         run: .\scripts\Verify-WidgetMusicGoal.ps1 Release
+      - name: Build installer when Inno Setup is available
+        shell: powershell
+        run: |
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+            "${env:LOCALAPPDATA}\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+          if (-not $iscc) {
+            $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($isccCommand) { $iscc = $isccCommand.Source }
+          }
+          if ($iscc) {
+            .\scripts\Build-Installer.cmd Release
+          } else {
+            Write-Host 'Inno Setup is not available on this runner; skipping installer artifact.'
+          }
+      - name: Upload installer artifact
+        if: ${{ hashFiles('out/dist/WidgetMusicSetup-*.exe') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: WidgetMusicSetup
+          path: out/dist/WidgetMusicSetup-*.exe
