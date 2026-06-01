@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -165,6 +166,53 @@ inline bool JsonTryGetBool(std::string_view json, std::string_view key, bool* ou
     return true;
   }
   return false;
+}
+
+inline bool JsonTryGetInt64(std::string_view json, std::string_view key, int64_t* out) {
+  if (!out) return false;
+  std::string pat;
+  pat.reserve(key.size() + 2);
+  pat.push_back('\"');
+  pat.append(key);
+  pat.push_back('\"');
+
+  size_t pos = json.find(pat);
+  if (pos == std::string_view::npos) return false;
+  pos = json.find(':', pos + pat.size());
+  if (pos == std::string_view::npos) return false;
+  ++pos;
+  JsonSkipWs(json, &pos);
+  if (pos >= json.size()) return false;
+
+  bool neg = false;
+  if (json[pos] == '-') {
+    neg = true;
+    ++pos;
+  }
+  if (pos >= json.size() || !std::isdigit(static_cast<unsigned char>(json[pos]))) return false;
+
+  constexpr uint64_t kInt64Max = static_cast<uint64_t>((std::numeric_limits<int64_t>::max)());
+  constexpr uint64_t kInt64MinAbs = kInt64Max + 1ull;
+  const uint64_t limit = neg ? kInt64MinAbs : kInt64Max;
+
+  uint64_t acc = 0;
+  while (pos < json.size() && std::isdigit(static_cast<unsigned char>(json[pos]))) {
+    uint64_t digit = static_cast<uint64_t>(json[pos] - '0');
+    if (acc > (limit - digit) / 10ull) return false;
+    acc = acc * 10ull + digit;
+    ++pos;
+  }
+
+  if (neg) {
+    if (acc == kInt64MinAbs) {
+      *out = (std::numeric_limits<int64_t>::min)();
+    } else {
+      *out = -static_cast<int64_t>(acc);
+    }
+  } else {
+    *out = static_cast<int64_t>(acc);
+  }
+  return true;
 }
 
 } // namespace widgetmusic

@@ -51,6 +51,9 @@ struct HostState {
   bool can_next = false;
   bool can_play_pause = false;
   bool refreshing = false;
+  bool has_timeline = false;
+  int64_t position_ms = 0;
+  int64_t duration_ms = 0;
 };
 
 std::wstring ToWString(winrt::hstring const& h) { return std::wstring{h}; }
@@ -333,6 +336,13 @@ std::string PlaybackToString(GlobalSystemMediaTransportControlsSessionPlaybackSt
   return "unknown";
 }
 
+int64_t TimeSpanToMs(winrt::Windows::Foundation::TimeSpan ts) {
+  // Windows TimeSpan is 100-ns units in C++/WinRT.
+  int64_t ticks100ns = ts.count();
+  if (ticks100ns <= 0) return 0;
+  return ticks100ns / 10000;
+}
+
 std::string BuildStateLine(const HostState& s) {
   std::string app = widgetmusic::WideToUtf8(s.app);
   std::string title = widgetmusic::WideToUtf8(s.title);
@@ -382,6 +392,18 @@ std::string BuildStateLine(const HostState& s) {
   j += widgetmusic::kKeyRefreshing;
   j += "\":";
   j += widgetmusic::JsonBool(s.refreshing);
+  j += ",\"";
+  j += widgetmusic::kKeyHasTimeline;
+  j += "\":";
+  j += widgetmusic::JsonBool(s.has_timeline);
+  j += ",\"";
+  j += widgetmusic::kKeyPositionMs;
+  j += "\":";
+  j += std::to_string(s.position_ms);
+  j += ",\"";
+  j += widgetmusic::kKeyDurationMs;
+  j += "\":";
+  j += std::to_string(s.duration_ms);
   j += "}\n";
   return j;
 }
@@ -948,8 +970,8 @@ class MediaSessionTracker {
   void SetPendingTrackChange() {
     std::lock_guard<std::mutex> lock(_mu);
     auto now = std::chrono::steady_clock::now();
-    _trackChangeUntil = now + std::chrono::milliseconds(2200);
-    _fastRefreshUntil = now + std::chrono::milliseconds(2200);
+    _trackChangeUntil = now + std::chrono::milliseconds(1400);
+    _fastRefreshUntil = now + std::chrono::milliseconds(1400);
     _dirty = true;
   }
 
@@ -1154,6 +1176,9 @@ class MediaSessionTracker {
     out.can_next = false;
     out.can_play_pause = false;
     out.refreshing = false;
+    out.has_timeline = false;
+    out.position_ms = 0;
+    out.duration_ms = 0;
 
     auto tryMediaPlayerUiFallback = [&]() -> bool {
       auto now = std::chrono::steady_clock::now();
@@ -1182,6 +1207,9 @@ class MediaSessionTracker {
       out.can_prev = true;
       out.can_next = true;
       out.can_play_pause = true;
+      out.has_timeline = false;
+      out.position_ms = 0;
+      out.duration_ms = 0;
       return true;
     };
 
@@ -1195,6 +1223,9 @@ class MediaSessionTracker {
       out.can_prev = false;
       out.can_next = false;
       out.can_play_pause = false;
+      out.has_timeline = false;
+      out.position_ms = 0;
+      out.duration_ms = 0;
       return true;
     };
 
@@ -1250,6 +1281,26 @@ class MediaSessionTracker {
       }
     }
 
+    try {
+      auto timeline = _session.GetTimelineProperties();
+      int64_t positionMs = TimeSpanToMs(timeline.Position());
+      int64_t startMs = TimeSpanToMs(timeline.StartTime());
+      int64_t endMs = TimeSpanToMs(timeline.EndTime());
+      int64_t durationMs = endMs - startMs;
+      if (durationMs < 0) durationMs = 0;
+      if (positionMs < 0) positionMs = 0;
+      if (durationMs > 0 && positionMs > durationMs) positionMs = durationMs;
+      if (durationMs > 0 || positionMs > 0) {
+        out.has_timeline = true;
+        out.position_ms = positionMs;
+        out.duration_ms = durationMs;
+      }
+    } catch (...) {
+      out.has_timeline = false;
+      out.position_ms = 0;
+      out.duration_ms = 0;
+    }
+
     bool mediaPropsHasMetadata = false;
     bool mediaPropsFailed = false;
     bool trackChangePending = IsTrackChangePending();
@@ -1277,6 +1328,12 @@ class MediaSessionTracker {
       out.title.clear();
       out.artist.clear();
       mediaPropsHasMetadata = false;
+    }
+    if (trackChangePending) {
+      // Avoid showing stale progress from the previous track during transition.
+      out.has_timeline = false;
+      out.position_ms = 0;
+      out.duration_ms = 0;
     }
 
     bool uiaFreshThisCycle = false;
@@ -1335,7 +1392,10 @@ class MediaSessionTracker {
                                 L" prev=" + (out.can_prev ? L"1" : L"0") +
                                 L" pp=" + (out.can_play_pause ? L"1" : L"0") +
                                 L" next=" + (out.can_next ? L"1" : L"0") +
-                                L" refreshing=" + (out.refreshing ? L"1" : L"0");
+                                L" refreshing=" + (out.refreshing ? L"1" : L"0") +
+                                L" timeline=" + (out.has_timeline ? L"1" : L"0") +
+                                L" posMs=" + std::to_wstring(out.position_ms) +
+                                L" durMs=" + std::to_wstring(out.duration_ms);
     if (stateSummary != _lastStateSummary) {
       _lastStateSummary = stateSummary;
       LogDebugLine(stateSummary);

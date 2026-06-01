@@ -46,7 +46,9 @@ constexpr UINT_PTR kMarqueeTimerId = 0x4D57;
 constexpr UINT_PTR kVisibleAuditTimerId = 0x4D58;
 constexpr UINT_PTR kCompactTitleTimerId = 0x4D59;
 constexpr UINT_PTR kPipeStartTimerId = 0x4D5B;
+constexpr UINT_PTR kProgressTimerId = 0x4D5C;
 constexpr UINT kMarqueeTimerMs = 16;
+constexpr UINT kProgressTimerMs = 1000;
 constexpr int kMarqueeSpeedPxPerSec = 40;
 constexpr DWORD kMarqueeMaxFrameMs = 48;
 constexpr DWORD kMarqueeInitialPauseMs = 900;
@@ -420,6 +422,9 @@ struct BandState {
   bool can_next = false;
   bool can_play_pause = false;
   bool refreshing = false;
+  bool has_timeline = false;
+  int64_t position_ms = 0;
+  int64_t duration_ms = 0;
 };
 
 bool SameBandState(const BandState& s,
@@ -432,10 +437,14 @@ bool SameBandState(const BandState& s,
                    bool canPrev,
                    bool canNext,
                    bool canPP,
-                   bool refreshing) {
+                   bool refreshing,
+                   bool hasTimeline,
+                   int64_t positionMs,
+                   int64_t durationMs) {
   return !s.connecting && s.connected == connected && s.has_session == hasSession && s.app == app &&
          s.title == title && s.artist == artist && s.playback == playback && s.can_prev == canPrev &&
-         s.can_next == canNext && s.can_play_pause == canPP && s.refreshing == refreshing;
+         s.can_next == canNext && s.can_play_pause == canPP && s.refreshing == refreshing &&
+         s.has_timeline == hasTimeline && s.position_ms == positionMs && s.duration_ms == durationMs;
 }
 
 std::wstring PrimaryTextForState(const BandState& s) {
@@ -458,6 +467,21 @@ std::wstring PrimaryTextForState(const BandState& s) {
   return L"Media active";
 }
 
+std::wstring FormatElapsedClock(int64_t ms) {
+  if (ms < 0) ms = 0;
+  int64_t totalSec = ms / 1000;
+  int64_t hours = totalSec / 3600;
+  int64_t minutes = (totalSec % 3600) / 60;
+  int64_t seconds = totalSec % 60;
+  wchar_t buf[32]{};
+  if (hours > 0) {
+    StringCchPrintfW(buf, std::size(buf), L"%lld:%02lld:%02lld", hours, minutes, seconds);
+  } else {
+    StringCchPrintfW(buf, std::size(buf), L"%02lld:%02lld", minutes, seconds);
+  }
+  return buf;
+}
+
 bool SameVisualBandState(const BandState& oldState, const BandState& nextState) {
   const bool oldPrevEnabled = oldState.connected && oldState.has_session && oldState.can_prev;
   const bool newPrevEnabled = nextState.connected && nextState.has_session && nextState.can_prev;
@@ -466,9 +490,17 @@ bool SameVisualBandState(const BandState& oldState, const BandState& nextState) 
   const bool oldPlayEnabled = oldState.connected && oldState.has_session && oldState.can_play_pause;
   const bool newPlayEnabled = nextState.connected && nextState.has_session && nextState.can_play_pause;
 
+  const bool oldTimeline = oldState.has_timeline;
+  const bool newTimeline = nextState.has_timeline;
+  const int64_t oldPosSec = oldState.position_ms / 1000;
+  const int64_t newPosSec = nextState.position_ms / 1000;
+  const int64_t oldDurSec = oldState.duration_ms / 1000;
+  const int64_t newDurSec = nextState.duration_ms / 1000;
+
   return PrimaryTextForState(oldState) == PrimaryTextForState(nextState) &&
          oldPrevEnabled == newPrevEnabled && oldNextEnabled == newNextEnabled &&
-         oldPlayEnabled == newPlayEnabled && (oldState.playback == "playing") == (nextState.playback == "playing");
+         oldPlayEnabled == newPlayEnabled && (oldState.playback == "playing") == (nextState.playback == "playing") &&
+         oldTimeline == newTimeline && oldPosSec == newPosSec && oldDurSec == newDurSec;
 }
 
 constexpr UINT WM_APP_STATE = WM_APP + 0x4A1;
@@ -588,6 +620,9 @@ class PipeClient {
         _state->can_next = false;
         _state->can_play_pause = false;
         _state->refreshing = false;
+        _state->has_timeline = false;
+        _state->position_ms = 0;
+        _state->duration_ms = 0;
       }
     }
     if (_hwndNotify) ::PostMessageW(_hwndNotify, WM_APP_STATE, 0, 0);
@@ -609,6 +644,9 @@ class PipeClient {
     std::string playback;
     bool canPrev = false, canNext = false, canPP = false;
     bool refreshing = false;
+    bool hasTimeline = false;
+    int64_t positionMs = 0;
+    int64_t durationMs = 0;
 
     (void)widgetmusic::JsonTryGetString(msg, widgetmusic::kKeyApp, &appUtf8);
     (void)widgetmusic::JsonTryGetString(msg, widgetmusic::kKeyTitle, &titleUtf8);
@@ -618,6 +656,16 @@ class PipeClient {
     (void)widgetmusic::JsonTryGetBool(msg, widgetmusic::kKeyCanNext, &canNext);
     (void)widgetmusic::JsonTryGetBool(msg, widgetmusic::kKeyCanPlayPause, &canPP);
     (void)widgetmusic::JsonTryGetBool(msg, widgetmusic::kKeyRefreshing, &refreshing);
+    (void)widgetmusic::JsonTryGetBool(msg, widgetmusic::kKeyHasTimeline, &hasTimeline);
+    (void)widgetmusic::JsonTryGetInt64(msg, widgetmusic::kKeyPositionMs, &positionMs);
+    (void)widgetmusic::JsonTryGetInt64(msg, widgetmusic::kKeyDurationMs, &durationMs);
+    if (positionMs < 0) positionMs = 0;
+    if (durationMs < 0) durationMs = 0;
+    if (durationMs > 0 && positionMs > durationMs) positionMs = durationMs;
+    if (!hasTimeline) {
+      positionMs = 0;
+      durationMs = 0;
+    }
 
     if (!_state || !_stateMu) return;
     bool changed = true;
@@ -628,7 +676,7 @@ class PipeClient {
     {
       std::lock_guard<std::mutex> lock(*_stateMu);
       changed = !SameBandState(*_state, connected, hasSession, app, title, artist, playback, canPrev, canNext, canPP,
-                                refreshing);
+                                refreshing, hasTimeline, positionMs, durationMs);
       if (!changed) return;
 
       BandState next = *_state;
@@ -643,6 +691,9 @@ class PipeClient {
       next.can_next = canNext;
       next.can_play_pause = canPP;
       next.refreshing = refreshing;
+      next.has_timeline = hasTimeline;
+      next.position_ms = positionMs;
+      next.duration_ms = durationMs;
       visualChanged = !SameVisualBandState(*_state, next);
 
       _state->connecting = false;
@@ -656,6 +707,9 @@ class PipeClient {
       _state->can_next = canNext;
       _state->can_play_pause = canPP;
       _state->refreshing = refreshing;
+      _state->has_timeline = hasTimeline;
+      _state->position_ms = positionMs;
+      _state->duration_ms = durationMs;
     }
     if (visualChanged && _hwndNotify) ::PostMessageW(_hwndNotify, WM_APP_STATE, 0, 0);
   }
@@ -929,6 +983,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
         ::InvalidateRect(_hwnd, nullptr, FALSE);
       } else {
         StopCompactTitleTimer(true);
+        StopProgressTimer();
         StopMarqueeTimer(false);
         StopPipeClient(true);
         _bandMode = BandDisplayMode::Compact;
@@ -940,6 +995,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   IFACEMETHODIMP CloseDW(DWORD) override {
     StopPipeClient(true);
     StopCompactTitleTimer(true);
+    StopProgressTimer();
     StopMarqueeTimer(false);
     if (_compactTitlePopup) {
       ::DestroyWindow(_compactTitlePopup);
@@ -1033,6 +1089,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (!pUnkSite) {
       StopPipeClient(true);
       StopCompactTitleTimer(true);
+      StopProgressTimer();
       StopMarqueeTimer(false);
       if (_compactTitlePopup) {
         ::DestroyWindow(_compactTitlePopup);
@@ -1232,6 +1289,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       case WM_DESTROY:
         StopPipeClient(false);
         StopCompactTitleTimer(true);
+        StopProgressTimer();
         StopMarqueeTimer(false);
         if (_compactTitlePopup) {
           ::DestroyWindow(_compactTitlePopup);
@@ -1262,6 +1320,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
           _deferVisibleAuditUntilTick = 0;
           Layout();
           ::InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+        if (wp == kProgressTimerId) {
+          OnProgressTimer();
           return 0;
         }
         if (wp == kMarqueeTimerId) {
@@ -1394,6 +1456,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _state.can_next = false;
     _state.can_play_pause = false;
     _state.refreshing = false;
+    _state.has_timeline = false;
+    _state.position_ms = 0;
+    _state.duration_ms = 0;
+    _progressSnapshotTick.store(0, std::memory_order_release);
     _optimisticActive = false;
     _optimisticPlayback.clear();
   }
@@ -1422,6 +1488,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       _pipe.Stop();
       _pipeStarted = false;
     }
+    StopProgressTimer();
     if (resetState) {
       ResetDisconnectedState();
       if (_hwnd) ::InvalidateRect(_hwnd, nullptr, FALSE);
@@ -1474,6 +1541,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       ::SendMessageW(_compactTitlePopup, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&ti));
       _compactTitlePopupVisible = false;
     }
+    _hoverTitlePopupActive = false;
     if (clearText) _compactTitleText.clear();
   }
 
@@ -1500,7 +1568,12 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   void StartCompactTitleReveal(const std::wstring& text) {
-    if (!_hwnd || !IsCompactMode() || text.empty()) return;
+    if (!_hwnd || text.empty()) return;
+    if (_compactTitleTimerOn) {
+      ::KillTimer(_hwnd, kCompactTitleTimerId);
+      _compactTitleTimerOn = false;
+    }
+    _hoverTitlePopupActive = false;
     ShowCompactTitlePopup(text);
     _compactTitleUntilTick = ::GetTickCount() + kCompactTitleRevealMs;
     if (::SetTimer(_hwnd, kCompactTitleTimerId, kCompactTitleRevealMs, nullptr) != 0) {
@@ -1509,6 +1582,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   void OnCompactTitleTimer() {
+    if (_hwnd && _compactTitleTimerOn) ::KillTimer(_hwnd, kCompactTitleTimerId);
+    _compactTitleTimerOn = false;
+    _compactTitleUntilTick = 0;
+    if (_hoverTitlePopupActive) return;
     StopCompactTitleTimer(true);
   }
 
@@ -1516,12 +1593,28 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (!_hwnd || _bandMode == nextMode) return;
     StartPipeNow();
     StopCompactTitleTimer(true);
+    StopProgressTimer();
     StopMarqueeTimer(true);
     _bandMode = nextMode;
     _btnPrev.pressed = _btnPlayPause.pressed = _btnNext.pressed = false;
     _btnPrev.hot = _btnPlayPause.hot = _btnNext.hot = false;
+    BandState stateSnapshot;
+    {
+      std::lock_guard<std::mutex> lock(_stateMu);
+      stateSnapshot = _state;
+    }
+    UpdateProgressTimerState(stateSnapshot);
     NotifyBandInfoChanged();
     ApplyCurrentBandSize();
+  }
+
+  std::wstring BuildTrackPopupText(const BandState& s) const {
+    if (!s.connected || !s.has_session || s.title.empty()) return {};
+    if (s.artist.empty()) return s.title;
+    std::wstring t = s.title;
+    t.append(L" \x2014 ");
+    t.append(s.artist);
+    return t;
   }
 
   void ShowModeContextMenu(int sx, int sy) {
@@ -1554,12 +1647,17 @@ class WidgetMusicDeskband final : public IDeskBand2,
       std::lock_guard<std::mutex> lock(_stateMu);
       current = _state;
     }
-    std::wstring primary = PrimaryTextForState(current);
-    const bool hasTrackTitle = current.connected && current.has_session && !current.title.empty();
-    if (IsCompactMode() && hasTrackTitle && !_lastPrimaryText.empty() && primary != _lastPrimaryText) {
+    _progressSnapshotTick.store(current.has_timeline ? ::GetTickCount() : 0, std::memory_order_release);
+    std::wstring primary = BuildPrimaryText(current);
+    std::wstring popupTrack = BuildTrackPopupText(current);
+    if (IsCompactMode() && primary != _lastPrimaryText && !primary.empty()) {
       StartCompactTitleReveal(primary);
+    } else if (!popupTrack.empty() && !_lastTrackPopupText.empty() && popupTrack != _lastTrackPopupText) {
+      StartCompactTitleReveal(popupTrack);
     }
     _lastPrimaryText = primary;
+    _lastTrackPopupText = popupTrack;
+    UpdateProgressTimerState(current);
 
     if (_hwnd) {
       Layout();
@@ -1980,6 +2078,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
   void OnMouseDown(int x, int y) {
     if (!_hwnd) return;
+    if (_hoverTitlePopupActive) HideCompactTitlePopup(false);
     _mouseInClient = true;
     TrackMouseLeave();
     ::SetCapture(_hwnd);
@@ -1996,6 +2095,19 @@ class WidgetMusicDeskband final : public IDeskBand2,
     POINT pt{ x, y };
     _mouseInClient = true;
     TrackMouseLeave();
+
+    if (!_hoverTitlePopupActive && ::GetCapture() != _hwnd) {
+      BandState s;
+      {
+        std::lock_guard<std::mutex> lock(_stateMu);
+        s = _state;
+      }
+      std::wstring hoverText = BuildTrackPopupText(s);
+      if (!hoverText.empty()) {
+        ShowCompactTitlePopup(hoverText);
+        _hoverTitlePopupActive = true;
+      }
+    }
 
     bool hPrev = _btnPrev.hot;
     bool hPP = _btnPlayPause.hot;
@@ -2041,6 +2153,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   void OnMouseLeave() {
     _trackingMouse = false;
     _mouseInClient = false;
+    if (_hoverTitlePopupActive) HideCompactTitlePopup(false);
     if (!_btnPrev.hot && !_btnPlayPause.hot && !_btnNext.hot) return;
     _btnPrev.hot = false;
     _btnPlayPause.hot = false;
@@ -2114,8 +2227,86 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return shouldPause ? "pause" : "play";
   }
 
+  int64_t EffectiveTimelinePositionMs(const BandState& s, DWORD nowTick) const {
+    if (!s.has_timeline) return 0;
+    int64_t pos = s.position_ms;
+    DWORD snapshotTick = _progressSnapshotTick.load(std::memory_order_acquire);
+    if (s.playback == "playing" && snapshotTick != 0 && nowTick >= snapshotTick) {
+      DWORD deltaMs = nowTick - snapshotTick;
+      pos += static_cast<int64_t>(deltaMs);
+    }
+    if (pos < 0) pos = 0;
+    if (s.duration_ms > 0 && pos > s.duration_ms) pos = s.duration_ms;
+    return pos;
+  }
+
+  std::wstring BuildProgressText(const BandState& s, DWORD nowTick) const {
+    if (!s.connected || !s.has_session) return {};
+    if (s.refreshing && !s.has_timeline) return L"Updating...";
+
+    if (s.has_timeline) {
+      int64_t posMs = EffectiveTimelinePositionMs(s, nowTick);
+      std::wstring pos = FormatElapsedClock(posMs);
+      if (s.duration_ms > 0) {
+        return pos + L" / " + FormatElapsedClock(s.duration_ms);
+      }
+      return pos + L" \x2022 LIVE";
+    }
+
+    if (s.playback == "paused") return L"Paused \x2022 --:--";
+    if (s.playback == "playing") return L"--:-- \x2022 LIVE";
+    return {};
+  }
+
   std::wstring BuildPrimaryText(const BandState& s) {
+    if (IsFullMode()) {
+      DWORD now = ::GetTickCount();
+      std::wstring progress = BuildProgressText(s, now);
+      if (!progress.empty()) return progress;
+    }
     return PrimaryTextForState(s);
+  }
+
+  void StopProgressTimer() {
+    if (_hwnd && _progressTimerOn) {
+      ::KillTimer(_hwnd, kProgressTimerId);
+    }
+    _progressTimerOn = false;
+  }
+
+  void UpdateProgressTimerState(const BandState& s) {
+    if (!_hwnd) return;
+    const bool shouldRun = IsFullMode() && s.connected && s.has_session && s.has_timeline && s.playback == "playing";
+    if (shouldRun) {
+      if (!_progressTimerOn && ::SetTimer(_hwnd, kProgressTimerId, kProgressTimerMs, nullptr) != 0) {
+        _progressTimerOn = true;
+      }
+    } else {
+      StopProgressTimer();
+    }
+  }
+
+  void OnProgressTimer() {
+    if (!_hwnd || !IsFullMode()) {
+      StopProgressTimer();
+      return;
+    }
+
+    BandState s;
+    {
+      std::lock_guard<std::mutex> lock(_stateMu);
+      s = _state;
+    }
+    if (!(s.connected && s.has_session && s.has_timeline && s.playback == "playing")) {
+      StopProgressTimer();
+      return;
+    }
+
+    if (_textRc.right > _textRc.left) {
+      ::InvalidateRect(_hwnd, &_textRc, FALSE);
+    } else {
+      ::InvalidateRect(_hwnd, nullptr, FALSE);
+    }
   }
 
   void StopMarqueeTimer(bool resetOffset) {
@@ -2296,7 +2487,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     RECT textRcClipped{};
     const bool hasTextRc = ::IntersectRect(&textRcClipped, &_textRc, &rc) != FALSE;
-    const bool textOnlyPaint = !hdcIn && _marqueeActive && hasTextRc && RectContains(textRcClipped, dirtyRc);
+    const bool textOnlyPaint = !hdcIn && hasTextRc && RectContains(textRcClipped, dirtyRc);
     const RECT repaintRc = textOnlyPaint ? textRcClipped : rc;
 
     if (!EnsureBackBuffer(hdc, w, h)) {
@@ -2358,7 +2549,6 @@ class WidgetMusicDeskband final : public IDeskBand2,
       }
     }
 
-    const bool compactMode = IsCompactMode();
     const bool actionableMedia = s.connected && s.has_session;
     _btnPrev.enabled = actionableMedia && s.can_prev;
     _btnNext.enabled = actionableMedia && s.can_next;
@@ -2376,37 +2566,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
     ::SetTextColor(mem, fg);
     RECT tr = _textRc;
     if (tr.right > tr.left) {
-      SIZE textSize{};
-      if (!text.empty()) {
-        ::GetTextExtentPoint32W(mem, text.c_str(), static_cast<int>(text.size()), &textSize);
-      }
-      int areaWidth = tr.right - tr.left;
-      bool shouldMarquee = !compactMode && (s.playback == "playing") && textSize.cx > areaWidth + 8 &&
-                            areaWidth > 20;
-      ConfigureMarquee(shouldMarquee, textSize.cx, areaWidth, text);
-
-      if (shouldMarquee) {
-        int saved = ::SaveDC(mem);
-        ::IntersectClipRect(mem, tr.left, tr.top, tr.right, tr.bottom);
-
-        bool drewStrip = EnsureMarqueeStrip(hdc, hTextFont, text, textSize.cx, _marqueeGapPx, tr.bottom - tr.top, fg,
-                                            bgFill) &&
-                         DrawMarqueeStrip(mem, tr);
-        if (!drewStrip) {
-          TEXTMETRICW tm{};
-          ::GetTextMetricsW(mem, &tm);
-          int y = tr.top + ((tr.bottom - tr.top) - tm.tmHeight) / 2;
-          int x = tr.left - static_cast<int>(_marqueeOffsetPx);
-          ::TextOutW(mem, x, y, text.c_str(), static_cast<int>(text.size()));
-          if (x + textSize.cx + _marqueeGapPx < tr.right) {
-            ::TextOutW(mem, x + textSize.cx + _marqueeGapPx, y, text.c_str(), static_cast<int>(text.size()));
-          }
-        }
-        ::RestoreDC(mem, saved);
-      } else {
-        ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
-                    DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
-      }
+      StopMarqueeTimer(false);
+      ::DrawTextW(mem, text.c_str(), static_cast<int>(text.size()), &tr,
+                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
     } else {
       StopMarqueeTimer(false);
     }
@@ -2720,12 +2882,16 @@ class WidgetMusicDeskband final : public IDeskBand2,
   bool _trackingMouse = false;
   bool _mouseInClient = false;
   bool _compactTitlePopupVisible = false;
+  bool _hoverTitlePopupActive = false;
   bool _compactTitleTimerOn = false;
+  bool _progressTimerOn = false;
   bool _pipeStartTimerOn = false;
   bool _pipeStarted = false;
   DWORD _compactTitleUntilTick = 0;
+  std::atomic<DWORD> _progressSnapshotTick{0};
   std::wstring _compactTitleText;
   std::wstring _lastPrimaryText;
+  std::wstring _lastTrackPopupText;
   BandDisplayMode _bandMode = BandDisplayMode::Compact;
 
   bool _marqueeTimerOn = false;

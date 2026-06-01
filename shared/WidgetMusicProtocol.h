@@ -24,6 +24,9 @@ inline constexpr char kKeyCanPrev[] = "can_prev";
 inline constexpr char kKeyCanNext[] = "can_next";
 inline constexpr char kKeyCanPlayPause[] = "can_play_pause";
 inline constexpr char kKeyRefreshing[] = "refreshing";
+inline constexpr char kKeyHasTimeline[] = "has_timeline";
+inline constexpr char kKeyPositionMs[] = "position_ms";
+inline constexpr char kKeyDurationMs[] = "duration_ms";
 
 // JSON keys (client -> host)
 inline constexpr char kTypeCommand[] = "command";
