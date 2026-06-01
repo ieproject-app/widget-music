@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $deskbandPath = Join-Path $root 'WidgetMusicDeskband\src\Deskband.cpp'
 $hostPath = Join-Path $root 'WidgetMusicHost\src\main.cpp'
+$installScriptPath = Join-Path $root 'scripts\Install-WidgetMusic.cmd'
+$packageScriptPath = Join-Path $root 'scripts\Package-WidgetMusic.cmd'
 $registerScriptPath = Join-Path $root 'scripts\Register-WidgetMusic.cmd'
 $enableScriptPath = Join-Path $root 'scripts\Enable-WidgetMusicTaskbar.ps1'
 $deskbandDll = Join-Path $root "out\$Configuration\x64\WidgetMusicDeskband.dll"
@@ -19,6 +21,8 @@ $distUnregister = Join-Path $distDir 'Unregister-WidgetMusic.cmd'
 
 $deskband = Get-Content -Raw -Path $deskbandPath
 $hostSource = Get-Content -Raw -Path $hostPath
+$installScript = Get-Content -Raw -Path $installScriptPath
+$packageScript = Get-Content -Raw -Path $packageScriptPath
 $registerScript = Get-Content -Raw -Path $registerScriptPath
 $enableScript = Get-Content -Raw -Path $enableScriptPath
 $failures = New-Object System.Collections.Generic.List[string]
@@ -80,6 +84,8 @@ function Assert-Condition {
 
 Assert-FileExists 'Deskband DLL output' $deskbandDll
 Assert-FileExists 'Host EXE output' $hostExe
+Assert-FileExists 'Install script source' $installScriptPath
+Assert-FileExists 'Package script source' $packageScriptPath
 Assert-FileExists 'Register script source' $registerScriptPath
 Assert-FileExists 'Taskbar enable script source' $enableScriptPath
 Assert-FileExists 'Clean package deskband DLL' $distDll
@@ -135,6 +141,11 @@ Assert-MatchText 'host exits when no deskband connects' $hostSource '(?s)WAIT_TI
 Assert-MatchText 'host exits when pipe client disconnects' $hostSource '(?s)Pipe client disconnected.*?SetEvent\(_stopEvent\)'
 Assert-MatchText 'Media Player window fallback does not enable fake controls' $hostSource '(?s)auto\s+tryMediaPlayerWindowFallback.*?out\.can_prev\s*=\s*false;.*?out\.can_next\s*=\s*false;.*?out\.can_play_pause\s*=\s*false;'
 Assert-MatchText 'host fallback media keys require an actionable target' $hostSource '(?s)allowFallbackMediaKey.*?TryReadMediaPlayerNowPlayingFromUIA.*?if\s*\(allowFallbackMediaKey\s*&&\s*\(IsTrackCommand\(name\)\s*\|\|\s*allowPlaybackFallback\)\)'
+
+Assert-MatchText 'package script copies enable helper into runtime dist folder' $packageScript 'copy /y "%ROOT%\\scripts\\Enable-WidgetMusicTaskbar\.ps1" "%DIST%\\Enable-WidgetMusicTaskbar\.ps1"'
+Assert-MatchText 'runtime install restart path defers first enable attempt while explorer is down' $installScript '(?s)norestart\s+skipenable'
+Assert-MatchText 'runtime install restart path retries taskbar enable after explorer returns' $installScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?-File "%ENABLE_SCRIPT%"'
+Assert-MatchText 'runtime install supports explicit skip-enable mode for internal restart flow' $installScript '(?s)if /i not "%SKIP_ENABLE%"=="skipenable"'
 
 Assert-MatchText 'register restart path defers first enable attempt while explorer is down' $registerScript '(?s)norestart\s+skipenable'
 Assert-MatchText 'register restart path retries taskbar enable after explorer returns' $registerScript '(?s)Ensuring Widget Music is shown after Explorer restart.*?for /l %%I in \(1,1,[0-9]+\).*?Enable-WidgetMusicTaskbar\.ps1'

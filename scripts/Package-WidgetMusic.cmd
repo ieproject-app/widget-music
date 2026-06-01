@@ -39,6 +39,7 @@ copy /y "%OUTDIR%\WidgetMusicDeskband.dll" "%DIST%\" >nul
 copy /y "%OUTDIR%\WidgetMusicHost.exe" "%DIST%\" >nul
 copy /y "%ROOT%\scripts\Install-WidgetMusic.cmd" "%DIST%\Register-WidgetMusic.cmd" >nul
 copy /y "%ROOT%\scripts\Uninstall-WidgetMusic.cmd" "%DIST%\Unregister-WidgetMusic.cmd" >nul
+copy /y "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1" "%DIST%\Enable-WidgetMusicTaskbar.ps1" >nul
 
 > "%DIST%\README.txt" echo Widget Music runtime package
 >> "%DIST%\README.txt" echo.
