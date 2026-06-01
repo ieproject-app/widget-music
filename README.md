@@ -1,8 +1,8 @@
-# Widget Music (Windows 10 DeskBand + Host)
+# SnipTune 10 (Windows 10 DeskBand + Host)
 
-`Widget Music` adalah toolbar/deskband asli untuk Windows 10 yang muncul di:
+`SnipTune 10` adalah toolbar/deskband asli untuk Windows 10 dari [SnipGeek](https://snipgeek.com) yang muncul di:
 
-`Right click taskbar > Toolbars > Widget Music`
+`Right click taskbar > Toolbars > SnipTune 10`
 
 Arsitektur V1:
 
@@ -36,7 +36,7 @@ Folder build Release juga berisi PDB dan intermediate file untuk debugging, jadi
 .\scripts\Package-WidgetMusic.cmd Release
 ```
 
-Paket kecil ada di `out\dist\WidgetMusic`. Paket membawa DLL, EXE, script runtime, `VERSION.txt`, dan `SHA256SUMS.txt`.
+Paket kecil ada di `out\dist\SnipTune10`. Paket membawa DLL, EXE, script runtime, `VERSION.txt`, dan `SHA256SUMS.txt`.
 
 Untuk membuat installer Windows 10 x64:
 
@@ -46,25 +46,25 @@ Untuk membuat installer Windows 10 x64:
 
 Output installer ada di:
 
-`out\dist\WidgetMusicSetup-1.0.0-x64.exe`
+`out\dist\SnipTune10Setup-1.0.1-x64.exe`
 
 Script installer juga memeriksa agar binary Release tidak bergantung pada runtime Visual C++ dinamis seperti `MSVCP140.dll` dan `VCRUNTIME140*.dll`.
 
 ## Install dari Installer
 
-Jalankan `WidgetMusicSetup-1.0.0-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\WidgetMusic`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
+Jalankan `SnipTune10Setup-1.0.1-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
 
 Jika toolbar belum terlihat setelah install, aktifkan manual dari:
 
-`Right click taskbar > Toolbars > Widget Music`
+`Right click taskbar > Toolbars > SnipTune 10`
 
 Uninstall dari Apps & Features atau Control Panel akan unregister DeskBand dan me-restart Explorer sebelum file dihapus.
 
 ## Update dari Installer
 
-Untuk update versi berikutnya, naikkan versi aplikasi di resource/installer, build installer baru, lalu jalankan installer `.exe` baru di laptop yang sama. Karena installer memakai AppId yang sama, Inno Setup akan memperbarui instalasi yang sudah ada di `%LOCALAPPDATA%\WidgetMusic`.
+Untuk update versi berikutnya, naikkan versi aplikasi di resource/installer, build installer baru, lalu jalankan installer `.exe` baru di laptop yang sama. Karena installer memakai AppId yang sama, Inno Setup akan memperbarui instalasi yang sudah ada di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`.
 
-Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `WidgetMusicSetup-1.0.1-x64.exe`.
+Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `SnipTune10Setup-1.0.2-x64.exe`.
 
 Panduan update/release yang lebih lengkap ada di `docs\Panduan-Update-Release.md`. Alur GitHub Release ada di `docs\GitHub-Release-Process.md`.
 
@@ -84,7 +84,7 @@ Opsional, jika ingin script mencoba menampilkan toolbar otomatis:
 
 Lalu aktifkan:
 
-`Right click taskbar > Toolbars > Widget Music`
+`Right click taskbar > Toolbars > SnipTune 10`
 
 Catatan:
 * Default sekarang non-interactive: script tidak auto-enable toolbar kecuali diberi flag `auto`/`enable`.

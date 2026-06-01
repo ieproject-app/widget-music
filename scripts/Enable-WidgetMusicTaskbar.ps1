@@ -130,13 +130,13 @@ try {
   $result = [WidgetMusicTrayDeskBand]::EnsureShownWithRetry($DeskBandClsid, 5, 5, 200)
   Write-Host "[Enable] $result"
   if ($result -match 'shown_after=0x00000000') {
-    Write-Host '[Enable] Widget Music is now shown on the taskbar.'
+    Write-Host '[Enable] SnipTune 10 is now shown on the taskbar.'
     exit 0
   }
 
   Write-Host '[Enable] Deskband show command completed but taskbar did not report shown state.'
   exit 1
 } catch {
-  Write-Host ("[Enable] Failed to enable Widget Music on taskbar: " + $_.Exception.Message)
+  Write-Host ("[Enable] Failed to enable SnipTune 10 on taskbar: " + $_.Exception.Message)
   exit 1
 }

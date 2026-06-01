@@ -30,7 +30,7 @@ if /i "%ACTION%"=="restart" (
   set "ERR=%ERRORLEVEL%"
   if not errorlevel 1 (
     if defined AUTO_ENABLE (
-      echo [Register] Ensuring Widget Music is shown after Explorer restart...
+      echo [Register] Ensuring SnipTune 10 is shown after Explorer restart...
       set "ENABLE_OK="
       set "ENABLE_TIMED_OUT="
       for /l %%I in (1,1,10) do (
@@ -63,13 +63,13 @@ if /i "%ACTION%"=="restart" (
       )
       if not defined ENABLE_OK (
         if defined ENABLE_TIMED_OUT (
-          echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
+          echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
         ) else (
-          echo [Register] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+          echo [Register] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> SnipTune 10.
         )
       )
     ) else (
-      echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
+      echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
     )
   )
   popd >nul
@@ -106,16 +106,16 @@ if errorlevel 1 (
 if defined INTERNAL_SKIP (
   echo [Register] Auto-enable deferred until Explorer restart completes.
 ) else if defined AUTO_ENABLE (
-  echo [Register] Enabling Widget Music on taskbar...
+  echo [Register] Enabling SnipTune 10 on taskbar...
   call :run_enable
   set "ENABLE_EXIT=%ERRORLEVEL%"
   if "%ENABLE_EXIT%"=="2" (
-    echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
+    echo [Register] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
   ) else if errorlevel 1 (
-    echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+    echo [Register] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> SnipTune 10.
   )
 ) else (
-  echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
+  echo [Register] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
 )
 
 if /i "%ACTION%"=="restart" (

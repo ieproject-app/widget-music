@@ -37,7 +37,7 @@
 
 namespace {
 
-constexpr wchar_t kDeskbandTitle[] = L"Widget Music";
+constexpr wchar_t kDeskbandTitle[] = L"SnipTune 10";
 constexpr wchar_t kWindowClassName[] = L"WidgetMusicDeskbandWindow";
 constexpr int kBandMinWidth = 280;
 constexpr int kBandActualWidth = 300;

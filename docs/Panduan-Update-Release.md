@@ -1,14 +1,16 @@
-# Panduan Update dan Release Widget Music
+# Panduan Update dan Release SnipTune 10
 
-Dokumen ini adalah pegangan untuk update Widget Music di masa depan. Isinya sengaja dibuat eksplisit supaya bisa dibaca ulang oleh developer atau AI lain tanpa perlu menebak konteks proyek.
+Dokumen ini adalah pegangan untuk update SnipTune 10 di masa depan. Isinya sengaja dibuat eksplisit supaya bisa dibaca ulang oleh developer atau AI lain tanpa perlu menebak konteks proyek.
 
 ## Ringkasan Arsitektur Distribusi
 
-Widget Music bukan aplikasi single portable `.exe`. Komponen utamanya adalah:
+SnipTune 10 adalah brand publik produk ini di bawah SnipGeek. Nama teknis internal `WidgetMusic*` tetap dipakai untuk DLL, EXE, script, dan beberapa identifier lama agar registrasi COM, AppId installer, dan alur update tetap stabil.
+
+SnipTune 10 bukan aplikasi single portable `.exe`. Komponen utamanya adalah:
 
 * `WidgetMusicDeskband.dll`: COM DeskBand yang dimuat oleh `explorer.exe`.
 * `WidgetMusicHost.exe`: companion process untuk baca/kontrol media session.
-* Installer Inno Setup: memasang file ke `%LOCALAPPDATA%\WidgetMusic`, register DLL, restart Explorer, dan unregister saat uninstall/update.
+* Installer Inno Setup: memasang file ke `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, register DLL, restart Explorer, dan unregister saat uninstall/update.
 
 Target resmi saat ini:
 
@@ -24,8 +26,8 @@ Jangan ubah `AppId` di `installer\WidgetMusic.iss`. `AppId` yang sama membuat in
 File yang biasanya disentuh saat release versi baru:
 
 * `installer\WidgetMusic.iss`
-  * `#define MyAppVersion "1.0.0"`
-  * `OutputBaseFilename=WidgetMusicSetup-{#MyAppVersion}-x64`
+  * `#define MyAppVersion "1.0.1"`
+  * `OutputBaseFilename=SnipTune10Setup-{#MyAppVersion}-x64`
   * `PrepareToInstall` unregister versi lama sebelum update agar DLL tidak terkunci Explorer.
 * `WidgetMusicDeskband\WidgetMusicDeskband.rc`
   * `FILEVERSION`
@@ -95,7 +97,7 @@ Perintah ini build Release, register ulang DeskBand, restart Explorer hanya di s
 4. Cek secara manual di taskbar:
 
 ```text
-Right click taskbar > Toolbars > Widget Music
+Right click taskbar > Toolbars > SnipTune 10
 ```
 
 5. Jika perlu cek struktur taskbar:
@@ -106,7 +108,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Inspect-WidgetMusi
 
 ## Alur Release Installer
 
-Untuk release patch biasa, misalnya dari `1.0.0` ke `1.0.1`:
+Untuk release patch biasa, misalnya dari `1.0.1` ke `1.0.2`:
 
 1. Naikkan versi di file berikut:
 
@@ -127,7 +129,7 @@ scripts\Verify-WidgetMusicGoal.ps1
 Output:
 
 ```text
-out\dist\WidgetMusic
+out\dist\SnipTune10
 ```
 
 3. Jalankan dependency check:
@@ -153,7 +155,7 @@ VCRUNTIME140_1.dll
 Output untuk versi `1.0.1`:
 
 ```text
-out\dist\WidgetMusicSetup-1.0.1-x64.exe
+out\dist\SnipTune10Setup-1.0.1-x64.exe
 ```
 
 5. Jalankan verifier:
@@ -173,16 +175,16 @@ git diff --check
 Update end-user saat ini bersifat manual:
 
 1. User download installer versi baru.
-2. User menjalankan `WidgetMusicSetup-x.y.z-x64.exe`.
+2. User menjalankan `SnipTune10Setup-x.y.z-x64.exe`.
 3. Installer mendeteksi instalasi lama karena `AppId` sama.
 4. Installer menjalankan `Unregister-WidgetMusic.cmd restart` dari instalasi lama sebelum copy file baru.
 5. Explorer restart supaya `WidgetMusicDeskband.dll` lama tidak terkunci.
-6. Installer copy file baru ke `%LOCALAPPDATA%\WidgetMusic`.
+6. Installer copy file baru ke `%LOCALAPPDATA%\SnipGeek\SnipTune 10`.
 7. Installer menjalankan `Register-WidgetMusic.cmd restart auto`.
 8. User mengecek taskbar. Jika toolbar belum muncul, aktifkan manual:
 
 ```text
-Right click taskbar > Toolbars > Widget Music
+Right click taskbar > Toolbars > SnipTune 10
 ```
 
 Tidak ada auto-update built-in di widget saat ini. Jika ingin auto-update nanti, rancang terpisah dengan minimal:
@@ -215,8 +217,8 @@ Repo GitHub hanya menyimpan source, script, konfigurasi, dan dokumentasi. File h
 
 Untuk tiap versi publik, upload file penting sebagai GitHub Release assets:
 
-* `WidgetMusicSetup-<version>-x64.exe`
-* `WidgetMusic-<version>-runtime.zip`
+* `SnipTune10Setup-<version>-x64.exe`
+* `SnipTune10-<version>-runtime.zip`
 * `SHA256SUMS.txt`
 
 Workflow `.github\workflows\windows-release.yml` akan membuat draft release otomatis saat tag `v<version>` dipush. Detail alurnya ada di `docs\GitHub-Release-Process.md`.
@@ -231,7 +233,7 @@ Saat menerima tugas "update widget" atau "build installer", lakukan ini:
 4. Jangan menghapus aksesibilitas keyboard; focus ring keyboard boleh ada, klik mouse tidak perlu meninggalkan ring visual.
 5. Kalau build gagal karena DLL/EXE terkunci, itu biasanya karena Explorer/host sedang memakai binary dari `out\Release\x64`.
 6. Untuk menerapkan binary dev ke taskbar aktif, pakai `Register-WidgetMusic.cmd Release restart auto`.
-7. Untuk release publik, hasil utama adalah installer di `out\dist\WidgetMusicSetup-<version>-x64.exe`, bukan folder build developer.
+7. Untuk release publik, hasil utama adalah installer di `out\dist\SnipTune10Setup-<version>-x64.exe`, bukan folder build developer.
 8. Setelah perubahan installer atau build script, update `Verify-WidgetMusicGoal.ps1` agar invariant penting tetap dicek.
 
 ## Troubleshooting Singkat
@@ -248,7 +250,7 @@ Installer build gagal karena Inno Setup tidak ditemukan:
 
 Toolbar tidak muncul setelah install/update:
 
-* Buka manual dari `Right click taskbar > Toolbars > Widget Music`.
+* Buka manual dari `Right click taskbar > Toolbars > SnipTune 10`.
 * Kadang menu Toolbars perlu dibuka dua kali setelah register.
 
 Status widget `Disconnected`:

@@ -18,7 +18,7 @@ function Write-Section {
   Write-Host "=== $Title ==="
 }
 
-Write-Host 'Widget Music Visibility Diagnostic'
+Write-Host 'SnipTune 10 Visibility Diagnostic'
 Write-Host ("Root: " + $root)
 Write-Host ("Configuration: " + $Configuration)
 

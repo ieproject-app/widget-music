@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version, for example 1.0.0'
+        description: 'Release version, for example 1.0.1'
         required: true
         type: string
 
@@ -32,7 +32,7 @@ jobs:
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Release version must look like 1.0.0. Got '$version'."
+            throw "Release version must look like 1.0.1. Got '$version'."
           }
 
           "WIDGETMUSIC_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -61,18 +61,18 @@ jobs:
           $assets = Join-Path (Get-Location) 'out\release-assets'
           New-Item -ItemType Directory -Force -Path $assets | Out-Null
 
-          $installer = Join-Path (Get-Location) "out\dist\WidgetMusicSetup-$version-x64.exe"
+          $installer = Join-Path (Get-Location) "out\dist\SnipTune10Setup-$version-x64.exe"
           if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
             throw "Installer asset not found: $installer"
           }
 
           Copy-Item -LiteralPath $installer -Destination $assets
 
-          $runtimeZip = Join-Path $assets "WidgetMusic-$version-runtime.zip"
+          $runtimeZip = Join-Path $assets "SnipTune10-$version-runtime.zip"
           if (Test-Path -LiteralPath $runtimeZip) {
             Remove-Item -LiteralPath $runtimeZip -Force
           }
-          Compress-Archive -Path 'out\dist\WidgetMusic\*' -DestinationPath $runtimeZip -CompressionLevel Optimal
+          Compress-Archive -Path 'out\dist\SnipTune10\*' -DestinationPath $runtimeZip -CompressionLevel Optimal
 
           Get-ChildItem -LiteralPath $assets -File |
             Sort-Object Name |
@@ -84,7 +84,7 @@ jobs:
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WidgetMusic-${{ env.WIDGETMUSIC_VERSION }}-release-assets
+          name: SnipTune10-${{ env.WIDGETMUSIC_VERSION }}-release-assets
           path: out/release-assets/*
 
       - name: Publish GitHub release
@@ -98,6 +98,6 @@ jobs:
 
           gh release create $env:WIDGETMUSIC_TAG $assetPaths `
             --draft `
-            --title "Widget Music $env:WIDGETMUSIC_VERSION" `
+            --title "SnipTune 10 $env:WIDGETMUSIC_VERSION" `
             --generate-notes `
             --target $env:GITHUB_SHA

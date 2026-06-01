@@ -110,7 +110,7 @@ function Save-TaskbarShot {
 }
 
 @(
-  '=== Widget Music interactive hover inspect ==='
+  '=== SnipTune 10 interactive hover inspect ==='
   ('Timestamp=' + (Get-Date).ToString('o'))
   ('User=' + [System.Security.Principal.WindowsIdentity]::GetCurrent().Name)
   ('SessionId=' + (Get-Process -Id $PID).SessionId)

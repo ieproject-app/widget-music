@@ -48,8 +48,8 @@ jobs:
             Write-Host 'Inno Setup is not available on this runner; skipping installer artifact.'
           }
       - name: Upload installer artifact
-        if: ${{ hashFiles('out/dist/WidgetMusicSetup-*.exe') != '' }}
+        if: ${{ hashFiles('out/dist/SnipTune10Setup-*.exe') != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: WidgetMusicSetup
-          path: out/dist/WidgetMusicSetup-*.exe
+          name: SnipTune10Setup
+          path: out/dist/SnipTune10Setup-*.exe

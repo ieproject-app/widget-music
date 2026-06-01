@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 if (-not $Files -or $Files.Count -eq 0) {
-  $dist = Join-Path $root 'out\dist\WidgetMusic'
+  $dist = Join-Path $root 'out\dist\SnipTune10'
   $Files = @(
     (Join-Path $dist 'WidgetMusicDeskband.dll'),
     (Join-Path $dist 'WidgetMusicHost.exe')

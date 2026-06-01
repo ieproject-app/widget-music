@@ -15,7 +15,7 @@ if errorlevel 1 (
 )
 
 set "OUTDIR=%ROOT%\out\%CONFIG%\x64"
-set "DIST=%ROOT%\out\dist\WidgetMusic"
+set "DIST=%ROOT%\out\dist\SnipTune10"
 
 if not exist "%OUTDIR%\WidgetMusicDeskband.dll" (
   echo [Package] Missing "%OUTDIR%\WidgetMusicDeskband.dll".
@@ -43,14 +43,14 @@ copy /y "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1" "%DIST%\Enable-WidgetMusi
 copy /y "%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1" "%DIST%\Invoke-WidgetMusicTaskbarEnable.ps1" >nul
 copy /y "%ROOT%\scripts\Restart-WidgetMusicExplorer.ps1" "%DIST%\Restart-WidgetMusicExplorer.ps1" >nul
 
-> "%DIST%\README.txt" echo Widget Music runtime package
+> "%DIST%\README.txt" echo SnipTune 10 runtime package
 >> "%DIST%\README.txt" echo.
 >> "%DIST%\README.txt" echo Files in this folder are the runtime package. PDB and intermediate build files stay in out\%CONFIG%\x64 for developer diagnostics.
 >> "%DIST%\README.txt" echo.
 >> "%DIST%\README.txt" echo Install:   Register-WidgetMusic.cmd restart
 >> "%DIST%\README.txt" echo Optional:  Register-WidgetMusic.cmd restart auto
 >> "%DIST%\README.txt" echo Uninstall: Unregister-WidgetMusic.cmd restart
-> "%DIST%\VERSION.txt" echo 1.0.0.0
+> "%DIST%\VERSION.txt" echo 1.0.1.0
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$dist='%DIST%'; Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name } | Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii"
 if errorlevel 1 (

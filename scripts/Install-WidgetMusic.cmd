@@ -35,7 +35,7 @@ if /i "%ACTION%"=="restart" (
   if not errorlevel 1 (
     if defined AUTO_ENABLE (
       if exist "%ENABLE_SCRIPT%" (
-        echo [Install] Ensuring Widget Music is shown after Explorer restart...
+        echo [Install] Ensuring SnipTune 10 is shown after Explorer restart...
         set "ENABLE_OK="
         set "ENABLE_TIMED_OUT="
         for /l %%I in (1,1,10) do (
@@ -68,16 +68,16 @@ if /i "%ACTION%"=="restart" (
         )
         if not defined ENABLE_OK (
           if defined ENABLE_TIMED_OUT (
-            echo [Install] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
+            echo [Install] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
           ) else (
-            echo [Install] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+            echo [Install] Warning: could not auto-enable taskbar band after restart. You can enable it manually from Taskbar ^> Toolbars ^> SnipTune 10.
           )
         )
       ) else (
         echo [Install] Enable script not found; skip auto-enable after restart.
       )
     ) else (
-      echo [Install] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
+      echo [Install] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
     )
   )
   exit /b %ERR%
@@ -94,19 +94,19 @@ if defined INTERNAL_SKIP (
   echo [Install] Auto-enable deferred until Explorer restart completes.
 ) else if defined AUTO_ENABLE (
   if exist "%ENABLE_SCRIPT%" (
-    echo [Install] Enabling Widget Music on taskbar...
+    echo [Install] Enabling SnipTune 10 on taskbar...
     call :run_enable
     set "ENABLE_EXIT=%ERRORLEVEL%"
     if "%ENABLE_EXIT%"=="2" (
-      echo [Install] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> Widget Music.
+      echo [Install] Auto-enable timed out waiting for taskbar confirmation. You can enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
     ) else if errorlevel 1 (
-      echo [Install] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> Widget Music.
+      echo [Install] Warning: could not auto-enable taskbar band. You can enable it manually from Taskbar ^> Toolbars ^> SnipTune 10.
     )
   ) else (
-    echo [Install] Enable script not found. Enable Widget Music manually from taskbar toolbar menu.
+    echo [Install] Enable script not found. Enable SnipTune 10 manually from taskbar toolbar menu.
   )
 ) else (
-  echo [Install] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> Widget Music.
+  echo [Install] Auto-enable not requested. Enable manually from Taskbar ^> Toolbars ^> SnipTune 10.
 )
 
 if /i "%ACTION%"=="restart" (

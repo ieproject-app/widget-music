@@ -1,8 +1,8 @@
 #include <windows.h>
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,0,0
- PRODUCTVERSION 1,0,0,0
+ FILEVERSION 1,0,1,0
+ PRODUCTVERSION 1,0,1,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -17,13 +17,13 @@ BEGIN
   BEGIN
     BLOCK "040904b0"
     BEGIN
-      VALUE "CompanyName", "Widget Music"
-      VALUE "FileDescription", "Widget Music media session host"
-      VALUE "FileVersion", "1.0.0.0"
+      VALUE "CompanyName", "SnipGeek"
+      VALUE "FileDescription", "SnipTune 10 media session host"
+      VALUE "FileVersion", "1.0.1.0"
       VALUE "InternalName", "WidgetMusicHost.exe"
       VALUE "OriginalFilename", "WidgetMusicHost.exe"
-      VALUE "ProductName", "Widget Music"
-      VALUE "ProductVersion", "1.0.0.0"
+      VALUE "ProductName", "SnipTune 10"
+      VALUE "ProductVersion", "1.0.1.0"
     END
   END
   BLOCK "VarFileInfo"

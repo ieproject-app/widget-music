@@ -19,7 +19,7 @@ $header = [pscustomobject]@{
 }
 
 @(
-  '=== Widget Music interactive taskbar inspect ==='
+  '=== SnipTune 10 interactive taskbar inspect ==='
   ($header | Format-List | Out-String)
   '=== Inspect output ==='
 ) | Set-Content -LiteralPath $log -Encoding UTF8

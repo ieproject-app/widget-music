@@ -72,7 +72,7 @@ $workflow = Read-Source '.github\workflows\windows-ci.yml'
 $releaseWorkflow = Read-Source '.github\workflows\windows-release.yml'
 
 $buildDir = Join-Path $root "out\$Configuration\x64"
-$distDir = Join-Path $root 'out\dist\WidgetMusic'
+$distDir = Join-Path $root 'out\dist\SnipTune10'
 $dll = Join-Path $buildDir 'WidgetMusicDeskband.dll'
 $hostExe = Join-Path $buildDir 'WidgetMusicHost.exe'
 $distDll = Join-Path $distDir 'WidgetMusicDeskband.dll'
@@ -108,10 +108,10 @@ if (Test-Path -LiteralPath $sums -PathType Leaf) {
 }
 
 if (Test-Path -LiteralPath $dll -PathType Leaf) {
-  Assert-Condition 'Deskband binary version is 1.0.0.0' ((Get-Item -LiteralPath $dll).VersionInfo.FileVersion -eq '1.0.0.0')
+  Assert-Condition 'Deskband binary version is 1.0.1.0' ((Get-Item -LiteralPath $dll).VersionInfo.FileVersion -eq '1.0.1.0')
 }
 if (Test-Path -LiteralPath $hostExe -PathType Leaf) {
-  Assert-Condition 'Host binary version is 1.0.0.0' ((Get-Item -LiteralPath $hostExe).VersionInfo.FileVersion -eq '1.0.0.0')
+  Assert-Condition 'Host binary version is 1.0.1.0' ((Get-Item -LiteralPath $hostExe).VersionInfo.FileVersion -eq '1.0.1.0')
 }
 
 Assert-Match 'full mode remains progress-first' $deskband '(?s)BuildPrimaryText\(const BandState& s\).*?IsFullMode\(\).*?BuildProgressText\(s,\s*now\).*?return progress'
@@ -152,23 +152,25 @@ Assert-Match 'packager writes VERSION.txt' $package 'VERSION\.txt'
 Assert-Match 'packager writes SHA256SUMS.txt' $package 'SHA256SUMS\.txt'
 Assert-Match 'deskband Release links static VC runtime' $deskbandProject '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
 Assert-Match 'host Release links static VC runtime' $hostProjectFile '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
-Assert-Match 'installer targets per-user LocalAppData' $installer 'DefaultDirName=\{localappdata\}\\WidgetMusic'
+Assert-Match 'installer targets per-user LocalAppData' $installer 'DefaultDirName=\{localappdata\}\\SnipGeek\\SnipTune 10'
+Assert-Match 'installer links publisher to SnipGeek website' $installer 'AppPublisherURL=https://snipgeek\.com'
 Assert-Match 'installer is limited to x64 Windows' $installer 'ArchitecturesAllowed=x64os'
 Assert-Match 'installer registers deskband after install' $installer 'Register-WidgetMusic\.cmd"; Parameters: "restart auto"'
 Assert-Match 'installer unregisters deskband during uninstall' $installer 'Unregister-WidgetMusic\.cmd"; Parameters: "restart"'
 Assert-Match 'installer unregisters existing install before update' $installer '(?s)PrepareToInstall.*?Unregister-WidgetMusic\.cmd.*?Exec\(UnregisterScript,\s*''restart'''
-Assert-Match 'installer output filename is stable' $installer 'OutputBaseFilename=WidgetMusicSetup-\{#MyAppVersion\}-x64'
+Assert-Match 'installer output filename is stable' $installer 'OutputBaseFilename=SnipTune10Setup-\{#MyAppVersion\}-x64'
 Assert-Match 'installer build invokes runtime packager' $buildInstaller 'Package-WidgetMusic\.cmd'
 Assert-Match 'installer build checks runtime dependencies' $buildInstaller 'Check-RuntimeDependencies\.ps1'
 Assert-Match 'installer build reports missing Inno Setup' $buildInstaller 'Inno Setup 6 was not found'
+Assert-Match 'dependency checker defaults to branded runtime package' $dependencyCheck 'out\\dist\\SnipTune10'
 Assert-Match 'dependency checker blocks MSVCP140' $dependencyCheck 'MSVCP140\.dll'
 Assert-Match 'dependency checker blocks VCRUNTIME140' $dependencyCheck 'VCRUNTIME140_1?\.dll'
 Assert-Match 'workflow checks runtime dependencies' $workflow 'Check-RuntimeDependencies\.ps1'
-Assert-Match 'workflow can upload installer artifact' $workflow 'WidgetMusicSetup-\*\.exe'
+Assert-Match 'workflow can upload installer artifact' $workflow 'SnipTune10Setup-\*\.exe'
 Assert-Match 'release workflow runs on version tags' $releaseWorkflow 'tags:\s*(?s).*?v\*\.\*\.\*'
 Assert-Match 'release workflow installs Inno Setup' $releaseWorkflow 'choco install innosetup'
 Assert-Match 'release workflow builds installer' $releaseWorkflow 'Build-Installer\.cmd Release'
-Assert-Match 'release workflow creates runtime zip' $releaseWorkflow 'WidgetMusic-\$version-runtime\.zip'
+Assert-Match 'release workflow creates runtime zip' $releaseWorkflow 'SnipTune10-\$version-runtime\.zip'
 Assert-Match 'release workflow creates checksum asset' $releaseWorkflow 'SHA256SUMS\.txt'
 Assert-Match 'release workflow publishes draft release' $releaseWorkflow '(?s)gh release create.*?--draft'
 Assert-Match 'restart helper scopes Explorer operations by session' $restart '(?s)\$sessionId = \(Get-Process -Id \$PID\)\.SessionId.*?Where-Object \{ \$_.SessionId -eq \$sessionId \}'
@@ -199,4 +201,4 @@ if ($failures.Count -gt 0) {
 }
 
 Write-Host ''
-Write-Host 'Widget Music final invariants passed.'
+Write-Host 'SnipTune 10 final invariants passed.'

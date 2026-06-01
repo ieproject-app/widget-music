@@ -89,7 +89,7 @@ class AccessibleButtons final : public IAccessible {
     *name = nullptr;
     std::wstring value;
     if (IsSelf(child)) {
-      value = L"Widget Music";
+      value = L"SnipTune 10";
     } else {
       const long childId = ChildId(child);
       if (!ValidChild(childId) || !_host) return E_INVALIDARG;
@@ -108,7 +108,7 @@ class AccessibleButtons final : public IAccessible {
   IFACEMETHODIMP get_accDescription(VARIANT child, BSTR* description) override {
     if (!description) return E_POINTER;
     *description = nullptr;
-    const wchar_t* value = IsSelf(child) ? L"Taskbar media controls" : L"Media control button";
+    const wchar_t* value = IsSelf(child) ? L"SnipTune 10 taskbar media controls" : L"Media control button";
     *description = ::SysAllocString(value);
     return *description ? S_OK : E_OUTOFMEMORY;
   }

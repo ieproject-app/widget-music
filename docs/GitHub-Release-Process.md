@@ -1,6 +1,6 @@
 # GitHub Release Process
 
-Dokumen ini menjelaskan susunan GitHub yang rapi untuk Widget Music.
+Dokumen ini menjelaskan susunan GitHub yang rapi untuk SnipTune 10.
 
 ## Yang Di-Commit ke Repo
 
@@ -26,9 +26,9 @@ Aturan ini sudah dijaga oleh `.gitignore`.
 
 Untuk tiap versi publik, upload file penting saja sebagai GitHub Release assets:
 
-* `WidgetMusicSetup-<version>-x64.exe`
+* `SnipTune10Setup-<version>-x64.exe`
   * File utama untuk pengguna biasa.
-* `WidgetMusic-<version>-runtime.zip`
+* `SnipTune10-<version>-runtime.zip`
   * Paket runtime manual untuk debugging atau distribusi tanpa installer.
 * `SHA256SUMS.txt`
   * Checksum release assets.
@@ -42,8 +42,8 @@ GitHub otomatis menyediakan source archive (`Source code (zip)` dan `Source code
 3. Buat tag versi:
 
 ```bat
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 4. Workflow `.github\workflows\windows-release.yml` akan berjalan otomatis.
@@ -62,7 +62,7 @@ Actions > windows-release > Run workflow
 Isi `version`, misalnya:
 
 ```text
-1.0.0
+1.0.1
 ```
 
 Workflow manual tetap membuat draft release dengan tag `v<version>`.
@@ -72,8 +72,8 @@ Workflow manual tetap membuat draft release dengan tag `v<version>`.
 Pastikan assets berikut ada di draft release:
 
 ```text
-WidgetMusicSetup-<version>-x64.exe
-WidgetMusic-<version>-runtime.zip
+SnipTune10Setup-<version>-x64.exe
+SnipTune10-<version>-runtime.zip
 SHA256SUMS.txt
 ```
 
