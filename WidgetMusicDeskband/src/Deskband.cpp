@@ -49,7 +49,10 @@ constexpr UINT_PTR kCompactTitleTimerId = 0x4D59;
 constexpr UINT_PTR kPipeStartTimerId = 0x4D5B;
 constexpr UINT_PTR kProgressTimerId = 0x4D5C;
 constexpr UINT_PTR kTitleHoverIntentTimerId = 0x4D5E;
+constexpr UINT_PTR kBandResizeTimerId = 0x4D5F;
 constexpr UINT kProgressTimerMs = 1000;
+constexpr UINT kBandResizeFrameMs = 16;
+constexpr DWORD kBandResizeDurationMs = 200;
 constexpr DWORD kVisibleAuditMinIntervalMs = 350;
 constexpr DWORD kCompactTitleRevealMs = 3200;
 constexpr DWORD kTitleHoverIntentDelayMs = 260;
@@ -905,6 +908,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
  public:
   WidgetMusicDeskband() { g_dllRefCount.fetch_add(1); }
   ~WidgetMusicDeskband() {
+    StopBandResizeTimer();
     StopPipeClient(false);
     StopCompactTitleTimer(true);
     ReleaseAccessibleProvider();
@@ -970,16 +974,23 @@ class WidgetMusicDeskband final : public IDeskBand2,
         Layout();
         ::InvalidateRect(_hwnd, nullptr, FALSE);
       } else {
+        StopBandResizeTimer();
         StopCompactTitleTimer(true);
         StopProgressTimer();
         StopPipeClient(true);
         _bandMode = BandDisplayMode::Compact;
+        _bandResizeCurrentWidth = kBandCompactWidth;
+        _bandResizeStartWidth = kBandCompactWidth;
+        _bandResizeTargetWidth = kBandCompactWidth;
+        _bandResizeAnchorRight = -1;
+        _bandResizeAnchorY = -1;
         _visibleInsetLeft = 0;
       }
     }
     return S_OK;
   }
   IFACEMETHODIMP CloseDW(DWORD) override {
+    StopBandResizeTimer();
     StopPipeClient(true);
     StopCompactTitleTimer(true);
     StopProgressTimer();
@@ -1008,7 +1019,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _viewMode = dwViewMode;
     if (!pdbi) return E_POINTER;
     LogDebugLine(L"GetBandInfo mask=" + std::to_wstring(pdbi->dwMask) + L" bandId=" + std::to_wstring(dwBandID) +
-                 L" mode=" + BandModeName() + L" desired=" + std::to_wstring(DesiredBandWidth()));
+                 L" mode=" + BandModeName() + L" desired=" + std::to_wstring(DesiredBandWidth()) +
+                 L" reported=" + std::to_wstring(ReportedBandWidth()));
 
     if (pdbi->dwMask & DBIM_TITLE) {
       // Keep the registry title for the Toolbars menu, but don't let Explorer render it inside the band.
@@ -1021,13 +1033,13 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (pdbi->dwMask & DBIM_MODEFLAGS) {
       pdbi->dwModeFlags = DBIMF_FIXED | DBIMF_NOGRIPPER | DBIMF_NOMARGINS;
     }
-    const int targetWidth = DesiredBandWidth();
+    const int targetWidth = ReportedBandWidth();
     if (pdbi->dwMask & DBIM_MINSIZE) {
-      pdbi->ptMinSize.x = IsCompactMode() ? targetWidth : kBandMinWidth;
+      pdbi->ptMinSize.x = IsBandResizeAnimating() ? targetWidth : (IsCompactMode() ? targetWidth : kBandMinWidth);
       pdbi->ptMinSize.y = kBandHeight;
     }
     if (pdbi->dwMask & DBIM_MAXSIZE) {
-      pdbi->ptMaxSize.x = IsCompactMode() ? targetWidth : kBandMaxWidth;
+      pdbi->ptMaxSize.x = IsBandResizeAnimating() ? targetWidth : (IsCompactMode() ? targetWidth : kBandMaxWidth);
       pdbi->ptMaxSize.y = kBandHeight;
     }
     if (pdbi->dwMask & DBIM_INTEGRAL) {
@@ -1072,6 +1084,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
 
     if (!pUnkSite) {
+      StopBandResizeTimer();
       StopPipeClient(true);
       StopCompactTitleTimer(true);
       StopProgressTimer();
@@ -1095,6 +1108,11 @@ class WidgetMusicDeskband final : public IDeskBand2,
     _site = pUnkSite;
     _site->AddRef();
     _bandMode = BandDisplayMode::Compact;
+    _bandResizeCurrentWidth = kBandCompactWidth;
+    _bandResizeStartWidth = kBandCompactWidth;
+    _bandResizeTargetWidth = kBandCompactWidth;
+    _bandResizeAnchorRight = -1;
+    _bandResizeAnchorY = -1;
     _mouseInClient = false;
 
     (void)pUnkSite->QueryInterface(__uuidof(IInputObjectSite), reinterpret_cast<void**>(&_inputSite));
@@ -1283,6 +1301,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
         OnMouseLeave();
         return 0;
       case WM_DESTROY:
+        StopBandResizeTimer();
         StopPipeClient(false);
         StopCompactTitleTimer(true);
         StopProgressTimer();
@@ -1323,6 +1342,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
         }
         if (wp == kTitleHoverIntentTimerId) {
           OnTitleHoverIntentTimer();
+          return 0;
+        }
+        if (wp == kBandResizeTimerId) {
+          OnBandResizeTimer();
           return 0;
         }
         break;
@@ -1477,7 +1500,23 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
   bool IsFullMode() const { return _bandMode == BandDisplayMode::Full; }
 
-  int DesiredBandWidth() const { return IsCompactMode() ? kBandCompactWidth : kBandActualWidth; }
+  static int BandWidthForMode(BandDisplayMode mode) {
+    return mode == BandDisplayMode::Compact ? kBandCompactWidth : kBandActualWidth;
+  }
+
+  int DesiredBandWidth() const { return BandWidthForMode(_bandMode); }
+
+  int ReportedBandWidth() const { return IsBandResizeAnimating() ? _bandResizeCurrentWidth : DesiredBandWidth(); }
+
+  bool IsBandResizeAnimating() const { return _bandResizeTimerOn; }
+
+  float FullLayoutProgress() const {
+    const float widthProgress = static_cast<float>(_bandResizeCurrentWidth - kBandCompactWidth) /
+                                static_cast<float>(kBandActualWidth - kBandCompactWidth);
+    return widgetmusic::ClampUnit(widthProgress);
+  }
+
+  bool ShouldRenderFullContent() const { return FullLayoutProgress() > 0.0f; }
 
   const wchar_t* BandModeName() const {
     switch (_bandMode) {
@@ -1533,15 +1572,31 @@ class WidgetMusicDeskband final : public IDeskBand2,
       return;
     }
 
-    HRESULT hr = _commandTarget->Exec(&CGID_DeskBand, DBID_BANDINFOCHANGED, OLECMDEXECOPT_DONTPROMPTUSER, nullptr,
-                                      nullptr);
+    VARIANT bandId{};
+    bandId.vt = VT_I4;
+    bandId.lVal = static_cast<LONG>(_bandId);
+    HRESULT hr =
+        _commandTarget->Exec(&CGID_DeskBand, DBID_BANDINFOCHANGED, OLECMDEXECOPT_DONTPROMPTUSER, &bandId, nullptr);
     LogDebugLine(L"BandInfoChanged hr=" + std::to_wstring(static_cast<long>(hr)) +
-                 L" width=" + std::to_wstring(DesiredBandWidth()));
+                 L" width=" + std::to_wstring(ReportedBandWidth()));
   }
 
-  void ApplyCurrentBandSize() {
+  bool CaptureBandResizeAnchor() {
+    if (!_hwnd) return false;
+    HWND parent = ::GetParent(_hwnd);
+    RECT wr{};
+    if (!parent || !::GetWindowRect(_hwnd, &wr)) return false;
+
+    POINT pts[2]{{wr.left, wr.top}, {wr.right, wr.bottom}};
+    ::MapWindowPoints(HWND_DESKTOP, parent, pts, 2);
+    _bandResizeAnchorRight = pts[1].x;
+    _bandResizeAnchorY = pts[0].y;
+    return true;
+  }
+
+  void ApplyCurrentBandSize(bool keepResizeAnchor = false) {
     if (!_hwnd) return;
-    const int targetWidth = DesiredBandWidth();
+    const int targetWidth = ReportedBandWidth();
     UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
     int x = 0;
     int y = 0;
@@ -1551,8 +1606,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (parent && ::GetWindowRect(_hwnd, &wr)) {
       POINT pts[2]{{wr.left, wr.top}, {wr.right, wr.bottom}};
       ::MapWindowPoints(HWND_DESKTOP, parent, pts, 2);
-      x = pts[1].x - targetWidth;
-      y = pts[0].y;
+      const int anchorRight = keepResizeAnchor && _bandResizeAnchorRight >= 0 ? _bandResizeAnchorRight : pts[1].x;
+      x = anchorRight - targetWidth;
+      y = keepResizeAnchor && _bandResizeAnchorY >= 0 ? _bandResizeAnchorY : pts[0].y;
       if (x < 0) x = 0;
       LogDebugLine(L"ApplyBandSize right-anchor x=" + std::to_wstring(x) + L" y=" + std::to_wstring(y) +
                    L" width=" + std::to_wstring(targetWidth));
@@ -1563,6 +1619,49 @@ class WidgetMusicDeskband final : public IDeskBand2,
     ::SetWindowPos(_hwnd, nullptr, x, y, targetWidth, kBandHeight, flags);
     Layout();
     ::InvalidateRect(_hwnd, nullptr, FALSE);
+  }
+
+  bool ClientAreaAnimationsEnabled() const {
+    BOOL enabled = TRUE;
+    if (!::SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0)) return true;
+    return enabled != FALSE;
+  }
+
+  void StopBandResizeTimer() {
+    if (_hwnd && _bandResizeTimerOn) ::KillTimer(_hwnd, kBandResizeTimerId);
+    _bandResizeTimerOn = false;
+  }
+
+  void FinishBandResize() {
+    StopBandResizeTimer();
+    _bandResizeCurrentWidth = _bandResizeTargetWidth;
+    ApplyCurrentBandSize(true);
+    NotifyBandInfoChanged();
+    ApplyCurrentBandSize(true);
+    _bandResizeAnchorRight = -1;
+    _bandResizeAnchorY = -1;
+    RequestBackgroundRefresh(true);
+    if (_hwnd) ::InvalidateRect(_hwnd, nullptr, FALSE);
+  }
+
+  void OnBandResizeTimer() {
+    if (!_hwnd || !_bandResizeTimerOn) {
+      StopBandResizeTimer();
+      return;
+    }
+
+    const DWORD elapsedMs = ::GetTickCount() - _bandResizeStartTick;
+    const float progress = static_cast<float>(elapsedMs) / static_cast<float>(kBandResizeDurationMs);
+    const int nextWidth =
+        widgetmusic::InterpolateSmoothInt(_bandResizeStartWidth, _bandResizeTargetWidth, progress);
+    if (nextWidth != _bandResizeCurrentWidth) {
+      _bandResizeCurrentWidth = nextWidth;
+      ApplyCurrentBandSize(true);
+      NotifyBandInfoChanged();
+      ApplyCurrentBandSize(true);
+    }
+
+    if (elapsedMs >= kBandResizeDurationMs) FinishBandResize();
   }
 
   void ResetDisconnectedState() {
@@ -1715,7 +1814,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     DWORD now = ::GetTickCount();
     if (now < _titlePopupSuppressUntilTick) return;
     if (IsPointInMediaButtons(_lastMousePoint)) return;
-    if (IsFullMode()) {
+    if (ShouldRenderFullContent()) {
       if (_textRc.right <= _textRc.left || !::PtInRect(&_textRc, _lastMousePoint)) return;
     } else {
       RECT client{};
@@ -1784,11 +1883,24 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   void SetDisplayMode(BandDisplayMode nextMode) {
-    if (!_hwnd || _bandMode == nextMode) return;
+    const int targetWidth = BandWidthForMode(nextMode);
+    if (!_hwnd || (_bandMode == nextMode && _bandResizeTargetWidth == targetWidth)) return;
     StartPipeNow();
     StopCompactTitleTimer(true);
     StopProgressTimer();
+
+    RECT client{};
+    const int clientWidth =
+        ::GetClientRect(_hwnd, &client) && client.right > client.left ? client.right - client.left : 0;
+    const int startWidth = clientWidth > 0 ? clientWidth : _bandResizeCurrentWidth;
+    if (!IsBandResizeAnimating() || _bandResizeAnchorRight < 0) (void)CaptureBandResizeAnchor();
+    StopBandResizeTimer();
+
     _bandMode = nextMode;
+    _bandResizeCurrentWidth = startWidth;
+    _bandResizeStartWidth = startWidth;
+    _bandResizeTargetWidth = targetWidth;
+    _bandResizeStartTick = ::GetTickCount();
     _btnPrev.pressed = _btnPlayPause.pressed = _btnNext.pressed = false;
     _btnPrev.hot = _btnPlayPause.hot = _btnNext.hot = false;
     BandState stateSnapshot;
@@ -1797,8 +1909,14 @@ class WidgetMusicDeskband final : public IDeskBand2,
       stateSnapshot = _state;
     }
     UpdateProgressTimerState(stateSnapshot);
-    NotifyBandInfoChanged();
-    ApplyCurrentBandSize();
+    if (startWidth == targetWidth || !ClientAreaAnimationsEnabled() ||
+        ::SetTimer(_hwnd, kBandResizeTimerId, kBandResizeFrameMs, nullptr) == 0) {
+      FinishBandResize();
+      return;
+    }
+
+    _bandResizeTimerOn = true;
+    ApplyCurrentBandSize(true);
   }
 
   std::wstring BuildTrackPopupText(const BandState& s) const {
@@ -1885,23 +2003,25 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
       RECT dirty{};
       bool hasDirty = false;
-      if (IsFullMode()) {
+      if (ShouldRenderFullContent()) {
         addRect(&dirty, &hasDirty, _seekRc);
         if (primaryChanged || playbackChanged) addRect(&dirty, &hasDirty, _textRc);
       } else if (primaryChanged || popupTrackChanged) {
         addRect(&dirty, &hasDirty, _textRc);
       }
 
-      if (buttonsChanged) {
-        RECT btnDirty = _btnPrev.rc;
-        ::UnionRect(&btnDirty, &btnDirty, &_btnPlayPause.rc);
-        ::UnionRect(&btnDirty, &btnDirty, &_btnNext.rc);
+      if (buttonsChanged || playbackChanged) {
+        RECT btnDirty = buttonsChanged ? _btnPrev.rc : _btnPlayPause.rc;
+        if (buttonsChanged) {
+          ::UnionRect(&btnDirty, &btnDirty, &_btnPlayPause.rc);
+          ::UnionRect(&btnDirty, &btnDirty, &_btnNext.rc);
+        }
         ::InflateRect(&btnDirty, 2, 2);
         addRect(&dirty, &hasDirty, btnDirty);
       }
 
       if (!hasDirty) {
-        if (IsFullMode()) addRect(&dirty, &hasDirty, _seekRc);
+        if (ShouldRenderFullContent()) addRect(&dirty, &hasDirty, _seekRc);
         addRect(&dirty, &hasDirty, _textRc);
       }
 
@@ -1968,8 +2088,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   void RequestBackgroundRefresh(bool force) {
-    (void)force;
-    _cachedBgValid = false;
+    if (force || !IsBandResizeAnimating()) _cachedBgValid = false;
   }
 
   COLORREF ResolveImmediateBackground(HWND hwnd) {
@@ -2038,17 +2157,19 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   bool EnsureBackBuffer(HDC hdc, int w, int h) {
-    if (_backDc && _backBmp && _backW == w && _backH == h && _backBits) return true;
+    if (_backDc && _backBmp && _backW >= w && _backH >= h && _backBits) return true;
 
     ReleaseBackBuffer();
 
     _backDc = ::CreateCompatibleDC(hdc);
     if (!_backDc) return false;
 
+    const int bufferW = max(w, kBandMaxWidth);
+    const int bufferH = max(h, kBandHeight);
     BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(bmi.bmiHeader);
-    bmi.bmiHeader.biWidth = w;
-    bmi.bmiHeader.biHeight = -h;  // top-down DIB
+    bmi.bmiHeader.biWidth = bufferW;
+    bmi.bmiHeader.biHeight = -bufferH;  // top-down DIB
     bmi.bmiHeader.biPlanes = 1;
     bmi.bmiHeader.biBitCount = 32;
     bmi.bmiHeader.biCompression = BI_RGB;
@@ -2059,8 +2180,8 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
 
     _backOldBmp = ::SelectObject(_backDc, _backBmp);
-    _backW = w;
-    _backH = h;
+    _backW = bufferW;
+    _backH = bufferH;
     return true;
   }
 
@@ -2152,45 +2273,68 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (visibleLeft > w - 1) visibleLeft = w - 1;
     const int visibleW = w - visibleLeft;
 
+    struct ButtonRects {
+      RECT prev{};
+      RECT playPause{};
+      RECT next{};
+    };
+
     const int pad = kFullPad;
-    int gap = IsCompactMode() ? 2 : 4;
-    int sideBtn = h - 16;
-    if (sideBtn < 20) sideBtn = 20;
-    if (sideBtn > 24) sideBtn = 24;
-    int playBtn = h - 8;
-    if (playBtn < 28) playBtn = 28;
-    if (playBtn > 32) playBtn = 32;
-    int usable = visibleW - (pad * 2);
-    if (usable < 1) usable = 1;
-    if (sideBtn * 2 + playBtn + gap * 2 > usable) {
-      gap = 2;
-      playBtn = min(playBtn, max(24, usable / 3));
-      sideBtn = min(sideBtn, max(18, (usable - playBtn - gap * 2) / 2));
-    }
+    auto buildButtonRects = [&](bool compact) {
+      int gap = compact ? 2 : 4;
+      int sideBtn = h - 16;
+      if (sideBtn < 20) sideBtn = 20;
+      if (sideBtn > 24) sideBtn = 24;
+      int playBtn = h - 8;
+      if (playBtn < 28) playBtn = 28;
+      if (playBtn > 32) playBtn = 32;
+      int usable = visibleW - (pad * 2);
+      if (usable < 1) usable = 1;
+      if (sideBtn * 2 + playBtn + gap * 2 > usable) {
+        gap = 2;
+        playBtn = min(playBtn, max(24, usable / 3));
+        sideBtn = min(sideBtn, max(18, (usable - playBtn - gap * 2) / 2));
+      }
 
-    if (IsCompactMode()) {
-      _textRc = {};
-      _seekRc = {};
-      int buttonsWidth = sideBtn * 2 + playBtn + gap * 2;
-      int x = visibleLeft + (visibleW - buttonsWidth) / 2;
-      if (x < visibleLeft + 2) x = visibleLeft + 2;
-      int sideTop = (h - sideBtn) / 2;
-      int playTop = (h - playBtn) / 2;
-      _btnPrev.rc = {x, sideTop, x + sideBtn, sideTop + sideBtn};
-      x += sideBtn + gap;
-      _btnPlayPause.rc = {x, playTop, x + playBtn, playTop + playBtn};
-      x += playBtn + gap;
-      _btnNext.rc = {x, sideTop, x + sideBtn, sideTop + sideBtn};
-    } else {
-      int xRight = rc.right - pad;
-      int sideTop = (h - sideBtn) / 2;
-      int playTop = (h - playBtn) / 2;
-      _btnNext.rc = {xRight - sideBtn, sideTop, xRight, sideTop + sideBtn};
-      xRight -= sideBtn + gap;
-      _btnPlayPause.rc = {xRight - playBtn, playTop, xRight, playTop + playBtn};
-      xRight -= playBtn + gap;
-      _btnPrev.rc = {xRight - sideBtn, sideTop, xRight, sideTop + sideBtn};
+      const int sideTop = (h - sideBtn) / 2;
+      const int playTop = (h - playBtn) / 2;
+      ButtonRects result{};
+      if (compact) {
+        const int buttonsWidth = sideBtn * 2 + playBtn + gap * 2;
+        int x = visibleLeft + (visibleW - buttonsWidth) / 2;
+        if (x < visibleLeft + 2) x = visibleLeft + 2;
+        result.prev = {x, sideTop, x + sideBtn, sideTop + sideBtn};
+        x += sideBtn + gap;
+        result.playPause = {x, playTop, x + playBtn, playTop + playBtn};
+        x += playBtn + gap;
+        result.next = {x, sideTop, x + sideBtn, sideTop + sideBtn};
+      } else {
+        int xRight = rc.right - pad;
+        result.next = {xRight - sideBtn, sideTop, xRight, sideTop + sideBtn};
+        xRight -= sideBtn + gap;
+        result.playPause = {xRight - playBtn, playTop, xRight, playTop + playBtn};
+        xRight -= playBtn + gap;
+        result.prev = {xRight - sideBtn, sideTop, xRight, sideTop + sideBtn};
+      }
+      return result;
+    };
 
+    const ButtonRects compactRects = buildButtonRects(true);
+    const ButtonRects fullRects = buildButtonRects(false);
+    const float fullProgress = FullLayoutProgress();
+    auto interpolateRect = [&](const RECT& compact, const RECT& full) {
+      return RECT{widgetmusic::InterpolateInt(compact.left, full.left, fullProgress),
+                  widgetmusic::InterpolateInt(compact.top, full.top, fullProgress),
+                  widgetmusic::InterpolateInt(compact.right, full.right, fullProgress),
+                  widgetmusic::InterpolateInt(compact.bottom, full.bottom, fullProgress)};
+    };
+    _btnPrev.rc = interpolateRect(compactRects.prev, fullRects.prev);
+    _btnPlayPause.rc = interpolateRect(compactRects.playPause, fullRects.playPause);
+    _btnNext.rc = interpolateRect(compactRects.next, fullRects.next);
+
+    _textRc = {};
+    _seekRc = {};
+    if (fullProgress > 0.0f) {
       int textRight = _btnPrev.rc.left - 8;
       int textLeft = visibleLeft + pad + kFullTextInsetLeft;
       if (textRight < textLeft) textRight = textLeft;
@@ -2241,7 +2385,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     const DWORD now = ::GetTickCount();
     bool hoverZone = false;
     if (!capturing && !inButtons && now >= _titlePopupSuppressUntilTick) {
-      if (IsFullMode()) {
+      if (ShouldRenderFullContent()) {
         hoverZone = inText;
       } else {
         RECT client{};
@@ -2406,7 +2550,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   std::wstring BuildPrimaryText(const BandState& s) {
-    if (IsFullMode()) {
+    if (ShouldRenderFullContent()) {
       DWORD now = ::GetTickCount();
       std::wstring progress = BuildProgressText(s, now);
       if (!progress.empty()) return progress;
@@ -2599,7 +2743,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       }
     }
 
-    if (!textOnlyPaint && IsFullMode() && _seekRc.right > _seekRc.left) {
+    if (!textOnlyPaint && ShouldRenderFullContent() && _seekRc.right > _seekRc.left) {
       RECT track = _seekRc;
       int midY = (_seekRc.top + _seekRc.bottom) / 2;
       track.top = midY - (kSeekTrackHeight / 2);
@@ -2886,7 +3030,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       if (alphaRc.right > w) alphaRc.right = w;
       if (alphaRc.bottom > h) alphaRc.bottom = h;
       for (int y = alphaRc.top; y < alphaRc.bottom; ++y) {
-        auto* row = pixels + static_cast<size_t>(y) * static_cast<size_t>(w);
+        auto* row = pixels + static_cast<size_t>(y) * static_cast<size_t>(_backW);
         for (int x = alphaRc.left; x < alphaRc.right; ++x) {
           row[x] |= 0xFF000000u;
         }
@@ -2956,8 +3100,15 @@ class WidgetMusicDeskband final : public IDeskBand2,
   bool _compactTitleTimerOn = false;
   bool _titleHoverIntentTimerOn = false;
   bool _progressTimerOn = false;
+  bool _bandResizeTimerOn = false;
   bool _pipeStartTimerOn = false;
   bool _pipeStarted = false;
+  int _bandResizeCurrentWidth = kBandCompactWidth;
+  int _bandResizeStartWidth = kBandCompactWidth;
+  int _bandResizeTargetWidth = kBandCompactWidth;
+  int _bandResizeAnchorRight = -1;
+  int _bandResizeAnchorY = -1;
+  DWORD _bandResizeStartTick = 0;
   DWORD _titlePopupSuppressUntilTick = 0;
   POINT _lastMousePoint{};
   std::atomic<DWORD> _progressSnapshotTick{0};

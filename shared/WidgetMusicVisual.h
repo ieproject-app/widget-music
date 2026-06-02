@@ -1,11 +1,32 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <windows.h>
 
 namespace widgetmusic {
+
+inline float ClampUnit(float value) {
+  if (value <= 0.0f) return 0.0f;
+  if (value >= 1.0f) return 1.0f;
+  return value;
+}
+
+inline float SmoothStep(float progress) {
+  const float t = ClampUnit(progress);
+  return t * t * (3.0f - (2.0f * t));
+}
+
+inline int InterpolateInt(int from, int to, float progress) {
+  const float t = ClampUnit(progress);
+  return from + static_cast<int>(std::lround(static_cast<float>(to - from) * t));
+}
+
+inline int InterpolateSmoothInt(int from, int to, float progress) {
+  return InterpolateInt(from, to, SmoothStep(progress));
+}
 
 inline COLORREF MedianColor(const std::vector<COLORREF>& samples, COLORREF fallback) {
   if (samples.empty()) return fallback;

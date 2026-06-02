@@ -46,13 +46,13 @@ Untuk membuat installer Windows 10 x64:
 
 Output installer ada di:
 
-`out\dist\SnipTune10Setup-1.0.1-x64.exe`
+`out\dist\SnipTune10Setup-1.0.3-x64.exe`
 
 Script installer juga memeriksa agar binary Release tidak bergantung pada runtime Visual C++ dinamis seperti `MSVCP140.dll` dan `VCRUNTIME140*.dll`.
 
 ## Install dari Installer
 
-Jalankan `SnipTune10Setup-1.0.1-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
+Jalankan `SnipTune10Setup-1.0.3-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
 
 Jika toolbar belum terlihat setelah install, aktifkan manual dari:
 
@@ -64,7 +64,7 @@ Uninstall dari Apps & Features atau Control Panel akan unregister DeskBand dan m
 
 Untuk update versi berikutnya, naikkan versi aplikasi di resource/installer, build installer baru, lalu jalankan installer `.exe` baru di laptop yang sama. Karena installer memakai AppId yang sama, Inno Setup akan memperbarui instalasi yang sudah ada di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`.
 
-Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `SnipTune10Setup-1.0.2-x64.exe`.
+Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `SnipTune10Setup-1.0.3-x64.exe`.
 
 Panduan update/release yang lebih lengkap ada di `docs\Panduan-Update-Release.md`. Alur GitHub Release ada di `docs\GitHub-Release-Process.md`.
 
@@ -105,6 +105,7 @@ Catatan:
 * Host auto-start dari deskband dengan delay sekitar 7 detik saat Explorer baru aktif, lalu reconnect jika host mati.
 * Saat toolbar dimatikan, deskband memutus pipe sehingga host ikut berhenti.
 * Widget sekarang mulai dari mode compact 132x40; untuk pindah mode gunakan klik kanan pada widget lalu pilih `Compact view` atau `Full view`.
+* Peralihan compact/full memakai animasi resize singkat sekitar 200 ms. Jika animasi UI dimatikan dari pengaturan aksesibilitas Windows, pergantian kembali instan.
 * Saat mode compact dan lagu berganti, title tampil sebentar sebagai popup native di atas widget agar lebih terbaca.
 * Mode full menampilkan progress text dan progress bar display-only. Tidak ada seek melalui widget.
 * Tombol bisa dioperasikan dengan keyboard: `Left`, `Right`, `Enter`, dan `Space`.
@@ -112,4 +113,5 @@ Catatan:
 * Tombol media hanya aktif saat ada target media yang valid; kondisi kosong tidak bisa mengirim play/pause palsu.
 * Audit invariant goal bisa dijalankan dengan `.\scripts\Verify-WidgetMusicGoal.ps1 Release`.
 * Test ringan bisa dijalankan dengan `.\scripts\Run-WidgetMusicTests.cmd Release`.
+* Sampling runtime peralihan compact/full bisa dijalankan dengan `.\scripts\Inspect-WidgetMusicTransition.ps1`.
 * Log debug, jika diaktifkan lewat registry, bisa dibaca dengan `.\scripts\Read-WidgetMusicLogs.ps1 -Tail 80`.

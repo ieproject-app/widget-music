@@ -1,5 +1,5 @@
 #define MyAppName "SnipTune 10"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "SnipGeek"
 #define MyAppExeName "WidgetMusicHost.exe"
 #define MyDistDir "..\out\dist\SnipTune10"
@@ -24,8 +24,9 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 MinVersion=10.0
 ArchitecturesAllowed=x64os
+SetupIconFile=..\assets\icons\snipgeek.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=1.0.1.0
+VersionInfoVersion=1.0.3.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows 10 DeskBand Installer
 VersionInfoProductName={#MyAppName}

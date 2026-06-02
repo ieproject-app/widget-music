@@ -50,7 +50,7 @@ copy /y "%ROOT%\scripts\Restart-WidgetMusicExplorer.ps1" "%DIST%\Restart-WidgetM
 >> "%DIST%\README.txt" echo Install:   Register-WidgetMusic.cmd restart
 >> "%DIST%\README.txt" echo Optional:  Register-WidgetMusic.cmd restart auto
 >> "%DIST%\README.txt" echo Uninstall: Unregister-WidgetMusic.cmd restart
-> "%DIST%\VERSION.txt" echo 1.0.1.0
+> "%DIST%\VERSION.txt" echo 1.0.3.0
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$dist='%DIST%'; Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name } | Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii"
 if errorlevel 1 (

@@ -73,6 +73,22 @@ int main() {
   Check(MedianColor({}, RGB(1, 2, 3)) == RGB(1, 2, 3), "median color keeps fallback for empty samples");
   Check(MaxChannelDelta(RGB(44, 60, 65), RGB(50, 55, 70)) == 6, "channel delta reports visual threshold");
 
+  Check(SmoothStep(-0.5f) == 0.0f && SmoothStep(0.0f) == 0.0f && SmoothStep(1.0f) == 1.0f &&
+            SmoothStep(1.5f) == 1.0f,
+        "smoothstep clamps and preserves endpoints");
+  int previousWidth = InterpolateSmoothInt(132, 300, 0.0f);
+  bool widthsAreMonotonic = previousWidth == 132;
+  for (int frame = 1; frame <= 20; ++frame) {
+    const int width = InterpolateSmoothInt(132, 300, static_cast<float>(frame) / 20.0f);
+    widthsAreMonotonic = widthsAreMonotonic && width >= previousWidth;
+    previousWidth = width;
+  }
+  Check(widthsAreMonotonic && previousWidth == 300, "smooth interpolation grows monotonically to its endpoint");
+  Check(InterpolateSmoothInt(132, 300, -1.0f) == 132 && InterpolateSmoothInt(132, 300, 2.0f) == 300,
+        "smooth interpolation clamps out-of-range progress");
+  Check(InterpolateSmoothInt(132, 300, 0.25f) == InterpolateSmoothInt(300, 132, 0.75f),
+        "smooth interpolation reverses symmetrically");
+
   if (g_failures != 0) {
     std::cerr << g_failures << " test(s) failed.\n";
     return 1;

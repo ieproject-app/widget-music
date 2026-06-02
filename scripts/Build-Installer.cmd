@@ -53,6 +53,6 @@ if errorlevel 1 (
   exit /b %ERR%
 )
 
-echo [Installer] Created "%ROOT%\out\dist\SnipTune10Setup-1.0.1-x64.exe".
+echo [Installer] Created "%ROOT%\out\dist\SnipTune10Setup-1.0.3-x64.exe".
 popd >nul
 exit /b 0

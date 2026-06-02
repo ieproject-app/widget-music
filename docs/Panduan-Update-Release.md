@@ -26,8 +26,9 @@ Jangan ubah `AppId` di `installer\WidgetMusic.iss`. `AppId` yang sama membuat in
 File yang biasanya disentuh saat release versi baru:
 
 * `installer\WidgetMusic.iss`
-  * `#define MyAppVersion "1.0.1"`
+  * `#define MyAppVersion "1.0.3"`
   * `OutputBaseFilename=SnipTune10Setup-{#MyAppVersion}-x64`
+  * `SetupIconFile=..\assets\icons\snipgeek.ico`
   * `PrepareToInstall` unregister versi lama sebelum update agar DLL tidak terkunci Explorer.
 * `WidgetMusicDeskband\WidgetMusicDeskband.rc`
   * `FILEVERSION`
@@ -35,10 +36,17 @@ File yang biasanya disentuh saat release versi baru:
   * string `FileVersion`
   * string `ProductVersion`
 * `WidgetMusicHost\WidgetMusicHost.rc`
+  * resource `APPICON`
   * `FILEVERSION`
   * `PRODUCTVERSION`
   * string `FileVersion`
   * string `ProductVersion`
+* `assets\icons\snipgeek-512.png`
+  * sumber raster utama untuk icon Windows.
+* `assets\icons\snipgeek.ico`
+  * icon multi-size yang dipakai host dan installer.
+* `scripts\Generate-SnipGeekIcon.ps1`
+  * regenerate `snipgeek.ico` jika sumber logo berubah.
 * `scripts\Package-WidgetMusic.cmd`
   * baris yang menulis `VERSION.txt`.
 * `scripts\Verify-WidgetMusicGoal.ps1`
@@ -108,7 +116,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Inspect-WidgetMusi
 
 ## Alur Release Installer
 
-Untuk release patch biasa, misalnya dari `1.0.1` ke `1.0.2`:
+Untuk release patch biasa, misalnya dari `1.0.3` ke `1.0.4`:
 
 1. Naikkan versi di file berikut:
 
@@ -152,10 +160,10 @@ VCRUNTIME140_1.dll
 .\scripts\Build-Installer.cmd Release
 ```
 
-Output untuk versi `1.0.1`:
+Output untuk versi `1.0.3`:
 
 ```text
-out\dist\SnipTune10Setup-1.0.1-x64.exe
+out\dist\SnipTune10Setup-1.0.3-x64.exe
 ```
 
 5. Jalankan verifier:

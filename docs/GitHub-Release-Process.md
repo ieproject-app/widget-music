@@ -7,6 +7,7 @@ Dokumen ini menjelaskan susunan GitHub yang rapi untuk SnipTune 10.
 Commit hanya source dan file pendukung yang dibutuhkan untuk membangun aplikasi:
 
 * Source C++ di `WidgetMusicDeskband`, `WidgetMusicHost`, `WidgetMusicTests`, dan `shared`.
+* Aset icon di `assets\icons`.
 * Script build/install/test di `scripts`.
 * Konfigurasi installer di `installer`.
 * Workflow GitHub Actions di `.github`.
@@ -42,8 +43,8 @@ GitHub otomatis menyediakan source archive (`Source code (zip)` dan `Source code
 3. Buat tag versi:
 
 ```bat
-git tag v1.0.1
-git push origin v1.0.1
+git tag v1.0.3
+git push origin v1.0.3
 ```
 
 4. Workflow `.github\workflows\windows-release.yml` akan berjalan otomatis.
@@ -62,7 +63,7 @@ Actions > windows-release > Run workflow
 Isi `version`, misalnya:
 
 ```text
-1.0.1
+1.0.3
 ```
 
 Workflow manual tetap membuat draft release dengan tag `v<version>`.

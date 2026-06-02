@@ -82,6 +82,7 @@
 
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
+    <None Include="..\assets\icons\snipgeek.ico" />
     <ResourceCompile Include="WidgetMusicHost.rc" />
   </ItemGroup>
 
