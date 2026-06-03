@@ -54,10 +54,12 @@ constexpr UINT kProgressTimerMs = 1000;
 constexpr UINT kBandResizeFrameMs = 16;
 constexpr DWORD kBandResizeDurationMs = 200;
 constexpr DWORD kVisibleAuditMinIntervalMs = 350;
+constexpr DWORD kInitialVisibleAuditDelayMs = 700;
 constexpr DWORD kCompactTitleRevealMs = 3200;
 constexpr DWORD kTitleHoverIntentDelayMs = 260;
 constexpr DWORD kTitleSuppressAfterClickMs = 1400;
-constexpr DWORD kStartupPipeDelayMs = 7000;
+constexpr DWORD kStartupPipeDelayMs = 750;
+constexpr int kNativeBackgroundMaxChannelDelta = 40;
 constexpr int kFullPad = 16;
 constexpr int kFullTextInsetLeft = 10;
 constexpr int kFullProgressTextTop = 2;
@@ -319,16 +321,13 @@ COLORREF SampleAdjacentTaskbarColor(HWND hwnd, COLORREF fallback) {
   const int yBottom = wr.bottom - 4;
 
   POINT points[] = {
-      {wr.left - 40, y},
-      {wr.left - 60, y},
-      {wr.left - 80, y},
-      {wr.right + 40, y},
-      {wr.right + 60, y},
-      {wr.right + 80, y},
-      {wr.left - 50, yTop},
-      {wr.left - 50, yBottom},
-      {wr.right + 50, yTop},
-      {wr.right + 50, yBottom},
+      {wr.right + 8, y},      {wr.right + 16, y},     {wr.right + 24, y},
+      {wr.right + 32, y},     {wr.right + 40, y},     {wr.right + 52, y},
+      {wr.right + 64, y},     {wr.right + 76, y},     {wr.right + 88, y},
+      {wr.right + 16, yTop},  {wr.right + 32, yTop},  {wr.right + 48, yTop},
+      {wr.right + 16, yBottom},
+      {wr.right + 32, yBottom},
+      {wr.right + 48, yBottom},
   };
 
   std::vector<COLORREF> samples;
@@ -491,6 +490,10 @@ class PipeClient {
       return;
     }
 
+    _threadStartTick = ::GetTickCount();
+    _firstConnectLogged = false;
+    _firstStateLogged = false;
+    LogDebugLine(L"Pipe client start");
     _thread = std::thread([this] { ThreadMain(); });
   }
 
@@ -570,6 +573,10 @@ class PipeClient {
     DWORD mode = PIPE_READMODE_MESSAGE;
     ::SetNamedPipeHandleState(_pipe, &mode, nullptr, nullptr);
 
+    if (!_firstConnectLogged) {
+      _firstConnectLogged = true;
+      LogDebugLine(L"Pipe connected after " + std::to_wstring(::GetTickCount() - _threadStartTick) + L"ms");
+    }
     return true;
   }
 
@@ -615,6 +622,10 @@ class PipeClient {
     if (!_helloValidated) {
       LogLine(L"Pipe state rejected before hello handshake");
       return false;
+    }
+    if (!_firstStateLogged) {
+      _firstStateLogged = true;
+      LogDebugLine(L"Pipe first state after " + std::to_wstring(::GetTickCount() - _threadStartTick) + L"ms");
     }
 
     bool connected = false;
@@ -853,6 +864,9 @@ class PipeClient {
   std::mutex* _stateMu = nullptr;
 
   DWORD _lastHostStartTick = 0;
+  DWORD _threadStartTick = 0;
+  bool _firstConnectLogged = false;
+  bool _firstStateLogged = false;
   bool _helloValidated = false;
 };
 
@@ -877,7 +891,7 @@ bool EnsureWindowClassRegisteredImpl() {
 
   WNDCLASSEXW wc{};
   wc.cbSize = sizeof(wc);
-  wc.style = CS_HREDRAW | CS_VREDRAW;
+  wc.style = 0;
   wc.lpfnWndProc = WidgetMusicWndProc;
   wc.cbClsExtra = 0;
   wc.cbWndExtra = 0;
@@ -969,8 +983,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (_hwnd) {
       ::ShowWindow(_hwnd, fShow ? SW_SHOW : SW_HIDE);
       if (fShow) {
+        BeginColdActivationTiming(L"ShowDW");
         SchedulePipeStart(kStartupPipeDelayMs);
-        DeferVisibleAudit();
+        DeferVisibleAudit(kInitialVisibleAuditDelayMs);
         Layout();
         ::InvalidateRect(_hwnd, nullptr, FALSE);
       } else {
@@ -1105,6 +1120,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       return S_OK;
     }
 
+    BeginColdActivationTiming(L"SetSite");
     _site = pUnkSite;
     _site->AddRef();
     _bandMode = BandDisplayMode::Compact;
@@ -1154,9 +1170,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
       ::SetParent(_hwnd, hwndParent);
     }
 
-    EnsureTooltip();
-    EnsureCompactTitlePopup();
-    DeferVisibleAudit();
+    DeferVisibleAudit(kInitialVisibleAuditDelayMs);
     RequestBackgroundRefresh(true);
     ::SetWindowPos(_hwnd, nullptr, 0, 0, DesiredBandWidth(), kBandHeight, SWP_NOZORDER | SWP_NOACTIVATE);
     LogDebugLine(L"SetWindowPos size=" + std::to_wstring(DesiredBandWidth()) + L"x" + std::to_wstring(kBandHeight));
@@ -1167,7 +1181,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
                    std::to_wstring(wr.right) + L"," + std::to_wstring(wr.bottom));
     }
     Layout();
-    ::RedrawWindow(_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_NOCHILDREN);
+    ::InvalidateRect(_hwnd, nullptr, FALSE);
     SchedulePipeStart(kStartupPipeDelayMs);
 
     return S_OK;
@@ -1226,8 +1240,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
         return 1;
       case WM_SIZE:
         RequestBackgroundRefresh(false);
-        Layout();
-        ::InvalidateRect(hwnd, nullptr, FALSE);
+        if (!_processingBandResizeFrame) {
+          Layout();
+          ::InvalidateRect(hwnd, nullptr, FALSE);
+        }
         return 0;
       case WM_WINDOWPOSCHANGED: {
         auto* pos = reinterpret_cast<WINDOWPOS*>(lp);
@@ -1236,8 +1252,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
         const bool visibilityChanged = (flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW | SWP_FRAMECHANGED)) != 0;
         if (movedOrSized || visibilityChanged) {
           RequestBackgroundRefresh(false);
-          Layout();
-          ::InvalidateRect(hwnd, nullptr, FALSE);
+          if (!_processingBandResizeFrame) {
+            Layout();
+            ::InvalidateRect(hwnd, nullptr, FALSE);
+          }
         }
         return 0;
       }
@@ -1365,6 +1383,19 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
  private:
+  void BeginColdActivationTiming(const wchar_t* source) {
+    _activationStartTick = ::GetTickCount();
+    _firstPaintLogged = false;
+    _pipeStartLogged = false;
+    LogDebugLine(std::wstring(L"Cold activation start: ") + source);
+  }
+
+  void LogColdActivationTiming(const wchar_t* eventName) {
+    if (_activationStartTick == 0) return;
+    LogDebugLine(std::wstring(L"Cold activation ") + eventName + L" after " +
+                 std::to_wstring(::GetTickCount() - _activationStartTick) + L"ms");
+  }
+
   LRESULT HandleAccessibleObject(WPARAM wp) {
     if (!_accessibleButtons) {
       _accessibleButtons = new (std::nothrow) widgetmusic::AccessibleButtons(this);
@@ -1594,31 +1625,56 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return true;
   }
 
-  void ApplyCurrentBandSize(bool keepResizeAnchor = false) {
-    if (!_hwnd) return;
+  bool EnsureCurrentBandGeometry(bool keepResizeAnchor = false) {
+    if (!_hwnd) return false;
     const int targetWidth = ReportedBandWidth();
     UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
     int x = 0;
     int y = 0;
+    int currentX = 0;
+    int currentY = 0;
+    int currentWidth = 0;
+    int currentHeight = 0;
 
     HWND parent = ::GetParent(_hwnd);
     RECT wr{};
     if (parent && ::GetWindowRect(_hwnd, &wr)) {
       POINT pts[2]{{wr.left, wr.top}, {wr.right, wr.bottom}};
       ::MapWindowPoints(HWND_DESKTOP, parent, pts, 2);
+      currentX = pts[0].x;
+      currentY = pts[0].y;
+      currentWidth = pts[1].x - pts[0].x;
+      currentHeight = pts[1].y - pts[0].y;
       const int anchorRight = keepResizeAnchor && _bandResizeAnchorRight >= 0 ? _bandResizeAnchorRight : pts[1].x;
       x = anchorRight - targetWidth;
       y = keepResizeAnchor && _bandResizeAnchorY >= 0 ? _bandResizeAnchorY : pts[0].y;
       if (x < 0) x = 0;
+      if (currentX == x && currentY == y && currentWidth == targetWidth && currentHeight == kBandHeight) {
+        return false;
+      }
       LogDebugLine(L"ApplyBandSize right-anchor x=" + std::to_wstring(x) + L" y=" + std::to_wstring(y) +
                    L" width=" + std::to_wstring(targetWidth));
     } else {
       flags |= SWP_NOMOVE;
     }
 
-    ::SetWindowPos(_hwnd, nullptr, x, y, targetWidth, kBandHeight, flags);
+    return ::SetWindowPos(_hwnd, nullptr, x, y, targetWidth, kBandHeight, flags) != FALSE;
+  }
+
+  void RenderCurrentBandFrame() {
+    if (!_hwnd) return;
     Layout();
-    ::InvalidateRect(_hwnd, nullptr, FALSE);
+    ::RedrawWindow(_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE | RDW_NOCHILDREN);
+    ::GdiFlush();
+    if (_compositionEnabled) (void)::DwmFlush();
+  }
+
+  void CommitBandResizeFrame(bool notifyExplorer) {
+    _processingBandResizeFrame = true;
+    if (notifyExplorer) NotifyBandInfoChanged();
+    (void)EnsureCurrentBandGeometry(true);
+    _processingBandResizeFrame = false;
+    RenderCurrentBandFrame();
   }
 
   bool ClientAreaAnimationsEnabled() const {
@@ -1635,13 +1691,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
   void FinishBandResize() {
     StopBandResizeTimer();
     _bandResizeCurrentWidth = _bandResizeTargetWidth;
-    ApplyCurrentBandSize(true);
-    NotifyBandInfoChanged();
-    ApplyCurrentBandSize(true);
+    CommitBandResizeFrame(true);
     _bandResizeAnchorRight = -1;
     _bandResizeAnchorY = -1;
-    RequestBackgroundRefresh(true);
-    if (_hwnd) ::InvalidateRect(_hwnd, nullptr, FALSE);
   }
 
   void OnBandResizeTimer() {
@@ -1652,16 +1704,17 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
     const DWORD elapsedMs = ::GetTickCount() - _bandResizeStartTick;
     const float progress = static_cast<float>(elapsedMs) / static_cast<float>(kBandResizeDurationMs);
+    if (elapsedMs >= kBandResizeDurationMs) {
+      FinishBandResize();
+      return;
+    }
+
     const int nextWidth =
         widgetmusic::InterpolateSmoothInt(_bandResizeStartWidth, _bandResizeTargetWidth, progress);
     if (nextWidth != _bandResizeCurrentWidth) {
       _bandResizeCurrentWidth = nextWidth;
-      ApplyCurrentBandSize(true);
-      NotifyBandInfoChanged();
-      ApplyCurrentBandSize(true);
+      CommitBandResizeFrame(true);
     }
-
-    if (elapsedMs >= kBandResizeDurationMs) FinishBandResize();
   }
 
   void ResetDisconnectedState() {
@@ -1690,6 +1743,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
     if (_pipeStartTimerOn) {
       ::KillTimer(_hwnd, kPipeStartTimerId);
       _pipeStartTimerOn = false;
+    }
+    if (!_pipeStartLogged) {
+      _pipeStartLogged = true;
+      LogColdActivationTiming(L"pipe start");
     }
     _pipe.SetStateSink(&_state, &_stateMu);
     _pipe.Start(_hwnd);
@@ -1916,7 +1973,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
     }
 
     _bandResizeTimerOn = true;
-    ApplyCurrentBandSize(true);
+    RenderCurrentBandFrame();
   }
 
   std::wstring BuildTrackPopupText(const BandState& s) const {
@@ -2088,7 +2145,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   }
 
   void RequestBackgroundRefresh(bool force) {
-    if (force || !IsBandResizeAnimating()) _cachedBgValid = false;
+    if (force || (!IsBandResizeAnimating() && !_processingBandResizeFrame)) _cachedBgValid = false;
   }
 
   COLORREF ResolveImmediateBackground(HWND hwnd) {
@@ -2104,14 +2161,33 @@ class WidgetMusicDeskband final : public IDeskBand2,
     return _cachedBgValid ? _cachedBg : ::GetSysColor(COLOR_3DFACE);
   }
 
+  void FillSolidBackground(HDC hdc, const RECT& rc, COLORREF color) {
+    HBRUSH br = ::CreateSolidBrush(color);
+    if (!br) return;
+    ::FillRect(hdc, &rc, br);
+    ::DeleteObject(br);
+  }
+
+  bool DrawNativeTaskbarBackground(HWND hwnd, HDC hdc, const RECT& rc, COLORREF fallback) {
+    if (!_compositionEnabled || FAILED(::DrawThemeParentBackground(hwnd, hdc, &rc))) return false;
+    if (rc.right <= rc.left || rc.bottom <= rc.top) return true;
+    const int probeX = min(rc.right - 1, rc.left + 4);
+    const int probeY = min(rc.bottom - 1, rc.top + 4);
+    COLORREF painted = ::GetPixel(hdc, probeX, probeY);
+    return painted != CLR_INVALID &&
+           widgetmusic::MaxChannelDelta(painted, fallback) <= kNativeBackgroundMaxChannelDelta;
+  }
+
   void PaintImmediateBackground(HWND hwnd, HDC hdc) {
     if (!hwnd || !hdc) return;
     RECT rc{};
     if (!::GetClientRect(hwnd, &rc)) return;
-    HBRUSH br = ::CreateSolidBrush(ResolveImmediateBackground(hwnd));
-    if (!br) return;
-    ::FillRect(hdc, &rc, br);
-    ::DeleteObject(br);
+    const bool highContrast = IsHighContrast();
+    const COLORREF fill = highContrast ? ::GetSysColor(COLOR_BTNFACE) : ResolveImmediateBackground(hwnd);
+    FillSolidBackground(hdc, rc, fill);
+    if (!highContrast && !DrawNativeTaskbarBackground(hwnd, hdc, rc, fill)) {
+      FillSolidBackground(hdc, rc, fill);
+    }
   }
 
   void ReleaseBackBuffer() {
@@ -2374,6 +2450,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
 
   void OnMouseMove(int x, int y) {
     if (!_hwnd) return;
+    if (!_tooltip) {
+      EnsureTooltip();
+      UpdateTooltipRects();
+    }
     POINT pt{ x, y };
     _lastMousePoint = pt;
     _mouseInClient = true;
@@ -2628,6 +2708,10 @@ class WidgetMusicDeskband final : public IDeskBand2,
       if (!hdcIn) ::EndPaint(_hwnd, &ps);
       return;
     }
+    if (!_firstPaintLogged) {
+      _firstPaintLogged = true;
+      LogColdActivationTiming(L"first paint");
+    }
 
     RECT dirtyRc = rc;
     if (!hdcIn && !::IsRectEmpty(&ps.rcPaint)) {
@@ -2662,16 +2746,15 @@ class WidgetMusicDeskband final : public IDeskBand2,
     COLORREF bgSample = RGB(32, 32, 32);
     COLORREF bgFill = highContrast ? ::GetSysColor(COLOR_BTNFACE) : ::GetSysColor(COLOR_3DFACE);
     if (highContrast) {
-      HBRUSH br = ::CreateSolidBrush(::GetSysColor(COLOR_BTNFACE));
-      ::FillRect(mem, &repaintRc, br);
-      ::DeleteObject(br);
+      FillSolidBackground(mem, repaintRc, ::GetSysColor(COLOR_BTNFACE));
       bgSample = ::GetSysColor(COLOR_BTNFACE);
     } else {
       bgSample = ResolveImmediateBackground(_hwnd);
       bgFill = bgSample;
-      HBRUSH br = ::CreateSolidBrush(bgFill);
-      ::FillRect(mem, &repaintRc, br);
-      ::DeleteObject(br);
+      FillSolidBackground(mem, repaintRc, bgFill);
+      if (!DrawNativeTaskbarBackground(_hwnd, mem, repaintRc, bgFill)) {
+        FillSolidBackground(mem, repaintRc, bgFill);
+      }
     }
 
     COLORREF accent = ::GetSysColor(COLOR_HIGHLIGHT);
@@ -3074,6 +3157,9 @@ class WidgetMusicDeskband final : public IDeskBand2,
   int _visibleInsetLeft = 0;
   bool _promotedOverBlankTaskList = false;
   bool _zOrderAdjusting = false;
+  DWORD _activationStartTick = 0;
+  bool _firstPaintLogged = false;
+  bool _pipeStartLogged = false;
   DWORD _lastVisibleAuditTick = 0;
   DWORD _deferVisibleAuditUntilTick = 0;
 
@@ -3101,6 +3187,7 @@ class WidgetMusicDeskband final : public IDeskBand2,
   bool _titleHoverIntentTimerOn = false;
   bool _progressTimerOn = false;
   bool _bandResizeTimerOn = false;
+  bool _processingBandResizeFrame = false;
   bool _pipeStartTimerOn = false;
   bool _pipeStarted = false;
   int _bandResizeCurrentWidth = kBandCompactWidth;

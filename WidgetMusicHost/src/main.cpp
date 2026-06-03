@@ -2,6 +2,7 @@
 
 #include <objbase.h>
 #include <oleauto.h>
+#include <shellapi.h>
 #include <sddl.h>
 #include <UIAutomationClient.h>
 
@@ -29,6 +30,7 @@
 #include "WidgetMusicProtocol.h"
 
 #pragma comment(lib, "uiautomationcore.lib")
+#pragma comment(lib, "shell32.lib")
 
 using namespace winrt;
 using namespace winrt::Windows::ApplicationModel;
@@ -40,6 +42,8 @@ namespace {
 std::mutex g_logMu;
 std::wstring g_logPath;
 constexpr DWORD kPipeNoClientTimeoutMs = 8000;
+constexpr DWORD kDefaultPrewarmStartupDelayMs = 15000;
+constexpr DWORD kMaxStartupDelayMs = 10 * 60 * 1000;
 constexpr int kFastRefreshWindowMs = 600;
 constexpr int kPendingPlaybackWindowMs = 450;
 constexpr int kTrackChangeWindowMs = 900;
@@ -61,6 +65,11 @@ struct HostState {
   bool has_timeline = false;
   int64_t position_ms = 0;
   int64_t duration_ms = 0;
+};
+
+struct HostOptions {
+  bool prewarm = false;
+  DWORD startup_delay_ms = 0;
 };
 
 std::wstring ToWString(winrt::hstring const& h) { return std::wstring{h}; }
@@ -107,6 +116,54 @@ std::wstring HrText(HRESULT hr) {
   wchar_t buf[32]{};
   swprintf_s(buf, L"0x%08X", static_cast<unsigned int>(hr));
   return buf;
+}
+
+DWORD ClampStartupDelay(unsigned long value) {
+  if (value > kMaxStartupDelayMs) return kMaxStartupDelayMs;
+  return static_cast<DWORD>(value);
+}
+
+bool TryParseStartupDelay(std::wstring_view text, DWORD* out) {
+  if (!out || text.empty()) return false;
+  std::wstring tmp(text);
+  wchar_t* end = nullptr;
+  unsigned long value = wcstoul(tmp.c_str(), &end, 10);
+  if (!end || *end != L'\0') return false;
+  *out = ClampStartupDelay(value);
+  return true;
+}
+
+HostOptions ParseHostOptions() {
+  HostOptions options{};
+
+  int argc = 0;
+  LPWSTR* argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+  if (!argv) return options;
+
+  for (int i = 1; i < argc; ++i) {
+    std::wstring_view arg(argv[i]);
+    if (_wcsicmp(argv[i], L"--prewarm") == 0) {
+      options.prewarm = true;
+      if (options.startup_delay_ms == 0) options.startup_delay_ms = kDefaultPrewarmStartupDelayMs;
+      continue;
+    }
+
+    constexpr std::wstring_view kDelayPrefix = L"--startup-delay-ms=";
+    if (arg.rfind(kDelayPrefix, 0) == 0) {
+      DWORD delay = 0;
+      if (TryParseStartupDelay(arg.substr(kDelayPrefix.size()), &delay)) options.startup_delay_ms = delay;
+      continue;
+    }
+
+    if (_wcsicmp(argv[i], L"--startup-delay-ms") == 0 && i + 1 < argc) {
+      DWORD delay = 0;
+      if (TryParseStartupDelay(argv[i + 1], &delay)) options.startup_delay_ms = delay;
+      ++i;
+    }
+  }
+
+  ::LocalFree(argv);
+  return options;
 }
 
 void LogLine(std::wstring_view line) {
@@ -477,9 +534,33 @@ std::wstring CurrentLogonSidString() {
   return sid;
 }
 
+std::wstring HostMutexNameForCurrentSession() {
+  return L"Local\\SnipTune10Host.Session." + std::to_wstring(widgetmusic::CurrentProcessSessionId());
+}
+
+HANDLE AcquireHostInstanceMutex() {
+  std::wstring name = HostMutexNameForCurrentSession();
+  HANDLE mutex = ::CreateMutexW(nullptr, FALSE, name.c_str());
+  if (!mutex) {
+    LogLine(L"Host single-instance mutex creation failed: " + HrText(HRESULT_FROM_WIN32(::GetLastError())));
+    return nullptr;
+  }
+
+  DWORD err = ::GetLastError();
+  if (err == ERROR_ALREADY_EXISTS) {
+    LogLine(L"Another WidgetMusicHost instance is already running for this session");
+    ::CloseHandle(mutex);
+    return nullptr;
+  }
+
+  LogDebugLine(L"Host single-instance mutex acquired: " + name);
+  return mutex;
+}
+
 class PipeServer {
  public:
-  explicit PipeServer(HANDLE stopEvent) : _stopEvent(stopEvent) {}
+  explicit PipeServer(HANDLE stopEvent, bool keepAliveWithoutClient)
+      : _stopEvent(stopEvent), _keepAliveWithoutClient(keepAliveWithoutClient) {}
   ~PipeServer() { Stop(); }
 
   PipeServer(const PipeServer&) = delete;
@@ -588,7 +669,8 @@ class PipeServer {
 
       if (!connOk && connErr == ERROR_IO_PENDING) {
         HANDLE handles[2]{_stopEvent, hConnEvent};
-        DWORD w = ::WaitForMultipleObjects(2, handles, FALSE, kPipeNoClientTimeoutMs);
+        DWORD connectTimeout = _keepAliveWithoutClient ? INFINITE : kPipeNoClientTimeoutMs;
+        DWORD w = ::WaitForMultipleObjects(2, handles, FALSE, connectTimeout);
         if (w == WAIT_OBJECT_0) {
           ::CloseHandle(hConnEvent);
           ::CloseHandle(pipe);
@@ -758,12 +840,13 @@ class PipeServer {
       ::DisconnectNamedPipe(pipe);
       ::CloseHandle(pipe);
       LogLine(L"Pipe client disconnected");
-      if (_stopEvent) ::SetEvent(_stopEvent);
+      if (!_keepAliveWithoutClient && _stopEvent) ::SetEvent(_stopEvent);
     }
   }
 
   HANDLE _stopEvent = nullptr;
   HANDLE _sendEvent = nullptr;
+  bool _keepAliveWithoutClient = false;
   std::thread _thread;
 
   std::mutex _mu;
@@ -1547,13 +1630,25 @@ class MediaSessionTracker {
 } // namespace
 
 int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
-  LogLine(L"Host start");
+  HostOptions options = ParseHostOptions();
+  if (options.startup_delay_ms > 0) {
+    LogLine(L"Host startup delay " + std::to_wstring(options.startup_delay_ms) + L"ms");
+    ::Sleep(options.startup_delay_ms);
+  }
+
+  HANDLE instanceMutex = AcquireHostInstanceMutex();
+  if (!instanceMutex) return 0;
+
+  LogLine(std::wstring(L"Host start prewarm=") + (options.prewarm ? L"1" : L"0"));
   winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
   HANDLE stopEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
-  if (!stopEvent) return 1;
+  if (!stopEvent) {
+    ::CloseHandle(instanceMutex);
+    return 1;
+  }
 
-  PipeServer server(stopEvent);
+  PipeServer server(stopEvent, options.prewarm);
   MediaSessionTracker tracker([&](const HostState& s) { server.SetLatestState(BuildStateLine(s)); });
   server.SetOnCommand([&](std::string_view name) { tracker.HandleCommand(name); });
 
@@ -1567,5 +1662,6 @@ int APIENTRY wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   tracker.Stop();
 
   ::CloseHandle(stopEvent);
+  ::CloseHandle(instanceMutex);
   return 0;
 }

@@ -1,5 +1,5 @@
 #define MyAppName "SnipTune 10"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.5"
 #define MyAppPublisher "SnipGeek"
 #define MyAppExeName "WidgetMusicHost.exe"
 #define MyDistDir "..\out\dist\SnipTune10"
@@ -25,8 +25,9 @@ PrivilegesRequired=lowest
 MinVersion=10.0
 ArchitecturesAllowed=x64os
 SetupIconFile=..\assets\icons\snipgeek.ico
+InfoAfterFile=AfterInstall.txt
 UninstallDisplayIcon={app}\{#MyAppExeName}
-VersionInfoVersion=1.0.3.0
+VersionInfoVersion=1.0.5.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows 10 DeskBand Installer
 VersionInfoProductName={#MyAppName}
@@ -38,8 +39,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Files]
 Source: "{#MyDistDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+Type: files; Name: "{app}\Enable-WidgetMusicTaskbar.ps1"
+Type: files; Name: "{app}\Invoke-WidgetMusicTaskbarEnable.ps1"
+
 [Run]
-Filename: "{app}\Register-WidgetMusic.cmd"; Parameters: "restart auto"; WorkingDir: "{app}"; StatusMsg: "Registering SnipTune 10 and restarting Explorer..."; Flags: runhidden waituntilterminated
+Filename: "{app}\Register-WidgetMusic.cmd"; Parameters: "restart"; WorkingDir: "{app}"; StatusMsg: "Registering SnipTune 10 and restarting Explorer..."; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 Filename: "{app}\Unregister-WidgetMusic.cmd"; Parameters: "restart"; WorkingDir: "{app}"; RunOnceId: "UnregisterWidgetMusic"; Flags: runhidden waituntilterminated

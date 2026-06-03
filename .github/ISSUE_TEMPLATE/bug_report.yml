@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible SnipTune 10 problem.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please include enough detail so it can be reproduced on Windows 10.
+  - type: input
+    id: version
+    attributes:
+      label: SnipTune 10 version
+      placeholder: "1.0.5"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version/build
+      placeholder: "Windows 10 22H2 build 19045.x"
+    validations:
+      required: true
+  - type: input
+    id: media-app
+    attributes:
+      label: Media app or browser
+      placeholder: "Spotify, Chrome, Edge, Media Player, etc."
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Install SnipTune 10
+        2. Enable it from taskbar Toolbars
+        3. Play media in ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Attach screenshots/video if useful. If debug logging is enabled, include relevant lines from `%TEMP%\WidgetMusicDeskband.log` and `%TEMP%\WidgetMusicHost.log`.
+    validations:
+      required: false

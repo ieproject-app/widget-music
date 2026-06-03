@@ -29,10 +29,11 @@ Terakhir diperbarui: 1 Juni 2026
 - Snapshot dan penggantian media session dilindungi mutex khusus.
 - Queue command dikosongkan saat teardown.
 - Log deskband dan host dirotasi setelah melewati `512 KB`.
+- Mode prewarm host tersedia untuk login Windows agar aktivasi pertama toolbar lebih cepat tanpa auto-enable toolbar.
 
 ## Paket dan Operasional
 
-- DLL serta EXE membawa metadata versi `1.0.0.0`.
+- DLL serta EXE membawa metadata versi `1.0.5.0`.
 - Paket runtime membawa `VERSION.txt` dan `SHA256SUMS.txt`.
 - Verifier membandingkan hash DLL/EXE build terhadap paket sehingga distribusi stale gagal terdeteksi.
 - Register, install, unregister, dan uninstall memakai helper restart Explorer bersama yang hanya menyentuh sesi pemanggil.

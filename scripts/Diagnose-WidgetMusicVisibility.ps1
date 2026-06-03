@@ -7,7 +7,6 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $registerCmd = Join-Path $root 'scripts\Register-WidgetMusic.cmd'
-$enableScript = Join-Path $root 'scripts\Enable-WidgetMusicTaskbar.ps1'
 $inspectScript = Join-Path $root 'scripts\Inspect-WidgetMusicTaskbar.ps1'
 $clsid = '{0E716D1F-3D3D-4A57-878D-A7DFC29D9115}'
 $dllPath = Join-Path $root "out\$Configuration\x64\WidgetMusicDeskband.dll"
@@ -74,14 +73,6 @@ try {
   }
 } catch {
   Write-Host ("[WARN] Could not enumerate explorer modules: " + $_.Exception.Message)
-}
-
-Write-Section 'Enable Script Probe'
-if (-not (Test-Path -LiteralPath $enableScript)) {
-  Write-Host ("[FAIL] Missing enable script: " + $enableScript)
-} else {
-  & powershell -NoProfile -ExecutionPolicy Bypass -File $enableScript
-  Write-Host ("[INFO] Enable script exit code: " + $LASTEXITCODE)
 }
 
 Write-Section 'Taskbar Inspect Probe'

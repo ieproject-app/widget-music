@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version, for example 1.0.1'
+        description: 'Release version, for example 1.0.5'
         required: true
         type: string
 
@@ -32,7 +32,7 @@ jobs:
           }
 
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Release version must look like 1.0.1. Got '$version'."
+            throw "Release version must look like 1.0.5. Got '$version'."
           }
 
           "WIDGETMUSIC_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -96,8 +96,24 @@ jobs:
             Sort-Object Name |
             ForEach-Object { $_.FullName }
 
-          gh release create $env:WIDGETMUSIC_TAG $assetPaths `
-            --draft `
-            --title "SnipTune 10 $env:WIDGETMUSIC_VERSION" `
-            --generate-notes `
-            --target $env:GITHUB_SHA
+          $version = $env:WIDGETMUSIC_VERSION
+          $notesFile = "docs\releases\v$version.md"
+          $releaseArgs = @(
+            'release',
+            'create',
+            $env:WIDGETMUSIC_TAG
+          ) + $assetPaths + @(
+            '--draft',
+            '--title',
+            "SnipTune 10 $version",
+            '--target',
+            $env:GITHUB_SHA
+          )
+
+          if (Test-Path -LiteralPath $notesFile -PathType Leaf) {
+            $releaseArgs += @('--notes-file', $notesFile)
+          } else {
+            $releaseArgs += @('--generate-notes')
+          }
+
+          gh @releaseArgs

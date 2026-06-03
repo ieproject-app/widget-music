@@ -1,23 +1,80 @@
-# SnipTune 10 (Windows 10 DeskBand + Host)
+# SnipTune 10
 
-`SnipTune 10` adalah toolbar/deskband asli untuk Windows 10 dari [SnipGeek](https://snipgeek.com) yang muncul di:
+SnipTune 10 is a native Windows 10 taskbar music widget by [SnipGeek](https://snipgeek.com). It adds compact media controls directly to the taskbar through the classic Windows DeskBand toolbar system.
 
-`Right click taskbar > Toolbars > SnipTune 10`
+![Activate SnipTune 10 from the taskbar toolbar menu](preview/taskbar-sniptune.png)
 
-Arsitektur V1:
+## Install
 
-1. `WidgetMusicDeskband.dll` (in-proc COM DeskBand) hidup di `explorer.exe`, menggambar UI kecil di taskbar dan mengirim perintah tombol.
-2. `WidgetMusicHost.exe` (out-of-proc companion) membaca/mengontrol media session via `GlobalSystemMediaTransportControlsSessionManager` dan menjadi server named pipe untuk IPC.
+For most users, use the installer from GitHub Releases:
 
-Komunikasi: named pipe lokal per sesi Windows (JSON lines, UTF-8) dengan handshake versi wajib.
+1. Open [SnipTune 10 releases](https://github.com/ieproject-app/widget-music/releases).
+2. Download `SnipTune10Setup-1.0.5-x64.exe`.
+3. Run the installer on Windows 10 x64.
+4. Right click an empty area of the taskbar.
+5. Choose `Toolbars` > `SnipTune 10`.
+6. If Windows asks for confirmation, choose `Yes`.
 
-## Build (CLI)
+The installer registers the DeskBand, restarts Explorer for the current user session, and installs a per-user prewarm helper so the first activation after login feels faster. It does not auto-enable the toolbar because Windows can show a confirmation dialog.
 
-Prasyarat:
+## Preview
 
-* Visual Studio Build Tools (Desktop development with C++) - VS 2022 atau lebih baru
-* Windows 10 SDK (10.0.x)
-* Inno Setup 6, hanya jika ingin membuat installer `.exe`
+Compact mode:
+
+![SnipTune 10 compact mode](preview/ss1.png)
+
+Full mode with progress:
+
+![SnipTune 10 full mode](preview/ss2.png)
+
+Demo video: [preview/demo-vidio-widget.mp4](preview/demo-vidio-widget.mp4)
+
+## Features
+
+* Native Windows 10 taskbar DeskBand, not an overlay.
+* Compact and full modes from the widget right-click menu.
+* Previous, play/pause, and next controls.
+* Full mode progress text and display-only progress bar.
+* Native-looking taskbar background sampling.
+* Faster first activation with per-user host prewarm.
+* Keyboard support: `Left`, `Right`, `Enter`, and `Space`.
+* Screen reader support through MSAA virtual buttons.
+* Per-user installer and uninstall flow.
+
+## Requirements
+
+* Windows 10 x64.
+* Windows taskbar toolbar support enabled by the OS.
+* A media app that exposes Windows media sessions, such as Spotify, Chrome/Edge media playback, Media Player, or compatible players.
+
+Windows 11 is not currently a supported target because classic taskbar DeskBands are not a stable public path there.
+
+## Troubleshooting
+
+If `SnipTune 10` does not appear in the taskbar Toolbars menu, restart Explorer or open the Toolbars menu again after install. Some Windows 10 systems need the menu opened twice after registration.
+
+If the widget appears but shows `Disconnected`, confirm `WidgetMusicHost.exe` is installed next to `WidgetMusicDeskband.dll`. For release installs, reinstalling the latest setup file is usually the simplest repair.
+
+Debug logs can be read from:
+
+* `%TEMP%\WidgetMusicDeskband.log`
+* `%TEMP%\WidgetMusicHost.log`
+
+Debug logging is off by default. It can be enabled with `HKCU\Software\WidgetMusic\DebugLog` as a DWORD value of `1`.
+
+## Update And Uninstall
+
+To update, run the newer `SnipTune10Setup-<version>-x64.exe`. The installer keeps the same AppId, unregisters the old DeskBand, updates files in `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, registers the new version, and restarts Explorer for the current user session.
+
+To uninstall, use Apps & Features or Control Panel. Uninstall unregisters the DeskBand, removes the prewarm startup entry, stops the host for the current session, and restarts Explorer.
+
+## Build From Source
+
+Prerequisites:
+
+* Visual Studio Build Tools 2022 or later with Desktop development with C++.
+* Windows 10 SDK.
+* Inno Setup 6, only if you want to build the `.exe` installer.
 
 Build x64 Release:
 
@@ -25,93 +82,46 @@ Build x64 Release:
 .\scripts\Build.cmd Release
 ```
 
-Output ada di:
+Run lightweight tests:
 
-`out\Release\x64\WidgetMusicDeskband.dll`  
-`out\Release\x64\WidgetMusicHost.exe`
+```bat
+.\scripts\Run-WidgetMusicTests.cmd Release
+```
 
-Folder build Release juga berisi PDB dan intermediate file untuk debugging, jadi ukurannya bisa jauh lebih besar dari runtime. Untuk membuat paket runtime bersih:
+Create the runtime package:
 
 ```bat
 .\scripts\Package-WidgetMusic.cmd Release
 ```
 
-Paket kecil ada di `out\dist\SnipTune10`. Paket membawa DLL, EXE, script runtime, `VERSION.txt`, dan `SHA256SUMS.txt`.
-
-Untuk membuat installer Windows 10 x64:
+Create the installer:
 
 ```bat
 .\scripts\Build-Installer.cmd Release
 ```
 
-Output installer ada di:
+The installer output is:
 
-`out\dist\SnipTune10Setup-1.0.3-x64.exe`
+```text
+out\dist\SnipTune10Setup-1.0.5-x64.exe
+```
 
-Script installer juga memeriksa agar binary Release tidak bergantung pada runtime Visual C++ dinamis seperti `MSVCP140.dll` dan `VCRUNTIME140*.dll`.
-
-## Install dari Installer
-
-Jalankan `SnipTune10Setup-1.0.3-x64.exe` di Windows 10 x64. Installer memasang file ke profil pengguna di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`, mendaftarkan DeskBand, mencoba menampilkan toolbar otomatis, lalu me-restart Explorer sebentar agar toolbar dikenali.
-
-Jika toolbar belum terlihat setelah install, aktifkan manual dari:
-
-`Right click taskbar > Toolbars > SnipTune 10`
-
-Uninstall dari Apps & Features atau Control Panel akan unregister DeskBand dan me-restart Explorer sebelum file dihapus.
-
-## Update dari Installer
-
-Untuk update versi berikutnya, naikkan versi aplikasi di resource/installer, build installer baru, lalu jalankan installer `.exe` baru di laptop yang sama. Karena installer memakai AppId yang sama, Inno Setup akan memperbarui instalasi yang sudah ada di `%LOCALAPPDATA%\SnipGeek\SnipTune 10`.
-
-Saat update, installer akan unregister versi lama dan me-restart Explorer terlebih dahulu supaya `WidgetMusicDeskband.dll` tidak terkunci, menimpa file dengan versi baru, lalu register ulang dan mencoba menampilkan toolbar lagi. Untuk distribusi publik, file installer sebaiknya diberi nama sesuai versi, misalnya `SnipTune10Setup-1.0.3-x64.exe`.
-
-Panduan update/release yang lebih lengkap ada di `docs\Panduan-Update-Release.md`. Alur GitHub Release ada di `docs\GitHub-Release-Process.md`.
-
-## Install / Register
-
-Register deskband + restart Explorer (direkomendasikan agar toolbar muncul):
+For development registration:
 
 ```bat
 .\scripts\Register-WidgetMusic.cmd Release restart
 ```
 
-Opsional, jika ingin script mencoba menampilkan toolbar otomatis:
+Then enable it manually from `Right click taskbar` > `Toolbars` > `SnipTune 10`.
 
-```bat
-.\scripts\Register-WidgetMusic.cmd Release restart auto
-```
+## Contributing
 
-Lalu aktifkan:
+Bug reports and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
 
-`Right click taskbar > Toolbars > SnipTune 10`
+For security-sensitive reports, please follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
-Catatan:
-* Default sekarang non-interactive: script tidak auto-enable toolbar kecuali diberi flag `auto`/`enable`.
-* Jika pakai mode `auto`, script memakai timeout agar proses tidak macet saat dialog konfirmasi Windows muncul.
-* Restart Explorer hanya menyentuh sesi Windows pengguna yang menjalankan script.
-* Jika toolbar belum terlihat, aktifkan manual dari menu Toolbars.
-* Kadang menu Toolbars perlu dibuka dua kali setelah register.
+## Links
 
-## Uninstall / Unregister
-
-```bat
-.\scripts\Unregister-WidgetMusic.cmd Release restart
-```
-
-## Debugging cepat
-
-* Jika toolbar tampil tapi status `Disconnected`, pastikan `WidgetMusicHost.exe` ada di folder output yang sama dengan DLL.
-* Host auto-start dari deskband dengan delay sekitar 7 detik saat Explorer baru aktif, lalu reconnect jika host mati.
-* Saat toolbar dimatikan, deskband memutus pipe sehingga host ikut berhenti.
-* Widget sekarang mulai dari mode compact 132x40; untuk pindah mode gunakan klik kanan pada widget lalu pilih `Compact view` atau `Full view`.
-* Peralihan compact/full memakai animasi resize singkat sekitar 200 ms. Jika animasi UI dimatikan dari pengaturan aksesibilitas Windows, pergantian kembali instan.
-* Saat mode compact dan lagu berganti, title tampil sebentar sebagai popup native di atas widget agar lebih terbaca.
-* Mode full menampilkan progress text dan progress bar display-only. Tidak ada seek melalui widget.
-* Tombol bisa dioperasikan dengan keyboard: `Left`, `Right`, `Enter`, dan `Space`.
-* Screen reader dapat membaca tiga tombol virtual: `Previous`, `Play/Pause`, dan `Next`.
-* Tombol media hanya aktif saat ada target media yang valid; kondisi kosong tidak bisa mengirim play/pause palsu.
-* Audit invariant goal bisa dijalankan dengan `.\scripts\Verify-WidgetMusicGoal.ps1 Release`.
-* Test ringan bisa dijalankan dengan `.\scripts\Run-WidgetMusicTests.cmd Release`.
-* Sampling runtime peralihan compact/full bisa dijalankan dengan `.\scripts\Inspect-WidgetMusicTransition.ps1`.
-* Log debug, jika diaktifkan lewat registry, bisa dibaca dengan `.\scripts\Read-WidgetMusicLogs.ps1 -Tail 80`.
+* Website: [snipgeek.com](https://snipgeek.com)
+* GitHub: [github.com/ieproject-app/widget-music](https://github.com/ieproject-app/widget-music)
+* License: [MIT](LICENSE)

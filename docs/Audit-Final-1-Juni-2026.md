@@ -8,10 +8,10 @@ Gelombang optimasi final telah diterapkan:
 
 | Area | Status | Ringkasan |
 | --- | --- | --- |
-| Runtime visual | Selesai | Progress text dan seek bar repaint bersama; surface taskbar disampling lebih dahulu; thumb hover dan marquee lama dihapus; popup judul di-clamp ke monitor aktif. |
+| Runtime visual | Selesai | Progress text dan seek bar repaint bersama; background parent taskbar native diprioritaskan dengan fallback sampel sisi kanan; transisi compact/full memakai satu commit ukuran per frame; popup judul di-clamp ke monitor aktif. |
 | Host dan IPC | Selesai | Mutex session khusus, queue teardown, endpoint pipe per sesi, ACL logon SID fail-closed, remote client reject, handshake versi wajib, batas payload/metadata, rotasi log. |
 | Aksesibilitas | Selesai | Keyboard navigation, activation key, focus ring, provider MSAA `WM_GETOBJECT`, tiga child virtual, dan `NotifyWinEvent`. |
-| Packaging | Selesai | Hash build-versus-dist, `SHA256SUMS.txt`, `VERSION.txt`, metadata versi biner `1.0.0.0`, helper restart Explorer per sesi, `.gitattributes`. |
+| Packaging | Selesai | Hash build-versus-dist, `SHA256SUMS.txt`, `VERSION.txt`, metadata versi biner `1.0.5.0`, helper restart Explorer per sesi, prewarm per-user, setup senyap tanpa auto-enable toolbar, panduan aktivasi manual, `.gitattributes`. |
 | Otomasi | Selesai | Console test ringan dan workflow Windows CI untuk build Debug/Release, tests, package, serta verifier. |
 
 ## Verifikasi Wajib
@@ -28,6 +28,7 @@ Gelombang optimasi final telah diterapkan:
 ## Pemeriksaan Visual Manual
 
 - Compact/full toggle: `132x40 -> 300x40 -> 132x40`.
+- Inspector transisi melaporkan frame unik, lompatan ukuran terbesar, durasi endpoint, kestabilan sisi kanan, reversal tengah animasi, dan observasi warna background.
 - Popup judul diuji pada area non-tombol.
 - Tooltip tombol diuji terpisah pada tombol play.
 - Background dibandingkan dengan area taskbar kosong terdekat; target selisih maksimum kanal RGB `<= 16`.

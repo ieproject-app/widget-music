@@ -24,6 +24,7 @@ if exist "%SystemRoot%\\Sysnative\\regsvr32.exe" set "REGSVR=%SystemRoot%\\Sysna
 set "PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
 if exist "%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe" set "PS=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"
 set "RESTART_HELPER=%ROOT%\\scripts\\Restart-WidgetMusicExplorer.ps1"
+set "PREWARM_HELPER=%ROOT%\\scripts\\Configure-WidgetMusicPrewarm.ps1"
 
 echo [Unregister] Unregistering "%DLL%" (per-user)...
 "%REGSVR%" /s /u "%DLL%"
@@ -31,6 +32,11 @@ if errorlevel 1 (
   echo [Unregister] regsvr32 failed.
   popd >nul
   exit /b 1
+)
+
+if exist "%PREWARM_HELPER%" (
+  echo [Unregister] Disabling SnipTune 10 prewarm...
+  "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%PREWARM_HELPER%" -Action Uninstall >nul 2>nul
 )
 
 if /i "%ACTION%"=="restart" (

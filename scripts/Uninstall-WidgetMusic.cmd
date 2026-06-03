@@ -4,6 +4,7 @@ setlocal enableextensions
 set "ROOT=%~dp0"
 set "DLL=%ROOT%WidgetMusicDeskband.dll"
 set "ACTION=%~1"
+set "PREWARM_HELPER=%ROOT%Configure-WidgetMusicPrewarm.ps1"
 
 if not exist "%DLL%" (
   echo [Uninstall] Deskband DLL not found next to this script: "%DLL%"
@@ -22,6 +23,11 @@ echo [Uninstall] Unregistering "%DLL%"...
 if errorlevel 1 (
   echo [Uninstall] regsvr32 failed.
   exit /b 1
+)
+
+if exist "%PREWARM_HELPER%" (
+  echo [Uninstall] Disabling SnipTune 10 prewarm...
+  "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%PREWARM_HELPER%" -Action Uninstall >nul 2>nul
 )
 
 if /i "%ACTION%"=="restart" (

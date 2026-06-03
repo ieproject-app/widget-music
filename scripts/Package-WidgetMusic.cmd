@@ -39,8 +39,7 @@ copy /y "%OUTDIR%\WidgetMusicDeskband.dll" "%DIST%\" >nul
 copy /y "%OUTDIR%\WidgetMusicHost.exe" "%DIST%\" >nul
 copy /y "%ROOT%\scripts\Install-WidgetMusic.cmd" "%DIST%\Register-WidgetMusic.cmd" >nul
 copy /y "%ROOT%\scripts\Uninstall-WidgetMusic.cmd" "%DIST%\Unregister-WidgetMusic.cmd" >nul
-copy /y "%ROOT%\scripts\Enable-WidgetMusicTaskbar.ps1" "%DIST%\Enable-WidgetMusicTaskbar.ps1" >nul
-copy /y "%ROOT%\scripts\Invoke-WidgetMusicTaskbarEnable.ps1" "%DIST%\Invoke-WidgetMusicTaskbarEnable.ps1" >nul
+copy /y "%ROOT%\scripts\Configure-WidgetMusicPrewarm.ps1" "%DIST%\Configure-WidgetMusicPrewarm.ps1" >nul
 copy /y "%ROOT%\scripts\Restart-WidgetMusicExplorer.ps1" "%DIST%\Restart-WidgetMusicExplorer.ps1" >nul
 
 > "%DIST%\README.txt" echo SnipTune 10 runtime package
@@ -48,9 +47,10 @@ copy /y "%ROOT%\scripts\Restart-WidgetMusicExplorer.ps1" "%DIST%\Restart-WidgetM
 >> "%DIST%\README.txt" echo Files in this folder are the runtime package. PDB and intermediate build files stay in out\%CONFIG%\x64 for developer diagnostics.
 >> "%DIST%\README.txt" echo.
 >> "%DIST%\README.txt" echo Install:   Register-WidgetMusic.cmd restart
->> "%DIST%\README.txt" echo Optional:  Register-WidgetMusic.cmd restart auto
+>> "%DIST%\README.txt" echo Enable:    Right click taskbar ^> Toolbars ^> SnipTune 10
+>> "%DIST%\README.txt" echo Prewarm:   Installed per-user at login for faster first activation
 >> "%DIST%\README.txt" echo Uninstall: Unregister-WidgetMusic.cmd restart
-> "%DIST%\VERSION.txt" echo 1.0.3.0
+> "%DIST%\VERSION.txt" echo 1.0.5.0
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$dist='%DIST%'; Get-ChildItem -LiteralPath $dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object { '{0}  {1}' -f (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant(), $_.Name } | Set-Content -LiteralPath (Join-Path $dist 'SHA256SUMS.txt') -Encoding ascii"
 if errorlevel 1 (

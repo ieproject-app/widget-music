@@ -43,14 +43,15 @@ GitHub otomatis menyediakan source archive (`Source code (zip)` dan `Source code
 3. Buat tag versi:
 
 ```bat
-git tag v1.0.3
-git push origin v1.0.3
+git tag v1.0.5
+git push origin v1.0.5
 ```
 
 4. Workflow `.github\workflows\windows-release.yml` akan berjalan otomatis.
 5. Workflow membangun installer, runtime zip, dan checksum.
 6. Workflow membuat GitHub Release sebagai draft.
-7. Buka halaman Releases di GitHub, cek assets, isi catatan rilis jika perlu, lalu publish.
+7. Jika file `docs\releases\v<version>.md` tersedia, workflow memakai file itu sebagai catatan rilis curated.
+8. Buka halaman Releases di GitHub, cek assets, checksum, dan catatan rilis, lalu publish.
 
 ## Release Manual dari GitHub Actions
 
@@ -63,7 +64,7 @@ Actions > windows-release > Run workflow
 Isi `version`, misalnya:
 
 ```text
-1.0.3
+1.0.5
 ```
 
 Workflow manual tetap membuat draft release dengan tag `v<version>`.
@@ -84,6 +85,7 @@ Cek juga:
 * Workflow test dan verifier lulus.
 * `SHA256SUMS.txt` berisi hash untuk installer dan runtime zip.
 * Catatan rilis menyebut perubahan penting dan instruksi update singkat.
+* Draft atau tag versi lama yang dibatalkan sudah dibersihkan setelah draft baru siap, misalnya melewati `1.0.3` dan langsung publish `1.0.5`.
 
 ## Catatan untuk AI Lain
 

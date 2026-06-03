@@ -29,6 +29,15 @@ public static class WidgetMusicTransitionWin32 {
   [DllImport("user32.dll")]
   public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
 
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetDC(IntPtr hwnd);
+
+  [DllImport("user32.dll")]
+  public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+  [DllImport("gdi32.dll")]
+  public static extern uint GetPixel(IntPtr hdc, int x, int y);
+
   [DllImport("user32.dll", CharSet = CharSet.Unicode)]
   public static extern bool SystemParametersInfo(uint action, uint uiParam, out bool enabled, uint flags);
 
@@ -99,6 +108,17 @@ function Add-WidgetSample {
   if (-not [WidgetMusicTransitionWin32]::GetWindowRect($script:widget, [ref]$rect)) {
     throw 'Could not read the widget rectangle.'
   }
+  $screenDc = [WidgetMusicTransitionWin32]::GetDC([IntPtr]::Zero)
+  $insideBackgroundColor = [uint32]::MaxValue
+  $adjacentBackgroundColor = [uint32]::MaxValue
+  if ($screenDc -ne [IntPtr]::Zero) {
+    try {
+      $insideBackgroundColor = [WidgetMusicTransitionWin32]::GetPixel($screenDc, $rect.Left + 4, $rect.Top + 4)
+      $adjacentBackgroundColor = [WidgetMusicTransitionWin32]::GetPixel($screenDc, $rect.Right + 4, $rect.Top + 4)
+    } finally {
+      [void][WidgetMusicTransitionWin32]::ReleaseDC([IntPtr]::Zero, $screenDc)
+    }
+  }
   $samples.Add([pscustomobject]@{
     Phase = $Phase
     ElapsedMs = $ElapsedMs
@@ -106,6 +126,8 @@ function Add-WidgetSample {
     Right = $rect.Right
     Width = $rect.Right - $rect.Left
     Height = $rect.Bottom - $rect.Top
+    InsideBackgroundColor = $insideBackgroundColor
+    AdjacentBackgroundColor = $adjacentBackgroundColor
   })
 }
 
@@ -120,6 +142,66 @@ function Capture-WidgetSamples {
     Start-Sleep -Milliseconds $SampleIntervalMs
   }
   Add-WidgetSample -Phase $Phase -ElapsedMs $watch.ElapsedMilliseconds
+}
+
+function Format-BackgroundColor {
+  param([uint32]$Color)
+  if ($Color -eq [uint32]::MaxValue) {
+    return 'invalid'
+  }
+  $r = $Color -band 0xFF
+  $g = ($Color -shr 8) -band 0xFF
+  $b = ($Color -shr 16) -band 0xFF
+  return ('#{0:X2}{1:X2}{2:X2}' -f $r, $g, $b)
+}
+
+function Get-MaxWidthStep {
+  param([object[]]$Rows)
+  $maxStep = 0
+  $previous = $null
+  foreach ($row in $Rows) {
+    if ($null -ne $previous) {
+      $step = [Math]::Abs([int]$row.Width - [int]$previous.Width)
+      if ($step -gt $maxStep) {
+        $maxStep = $step
+      }
+    }
+    $previous = $row
+  }
+  return $maxStep
+}
+
+function Get-EndpointDuration {
+  param(
+    [object[]]$Rows,
+    [int]$ExpectedWidth
+  )
+  $endpoint = $Rows | Where-Object Width -eq $ExpectedWidth | Select-Object -First 1
+  if (-not $endpoint) {
+    return -1
+  }
+  return [long]$endpoint.ElapsedMs
+}
+
+function Get-MaxBackgroundColorDelta {
+  param([object[]]$Rows)
+  $maxDelta = 0
+  foreach ($row in $Rows) {
+    $inside = [uint32]$row.InsideBackgroundColor
+    $adjacent = [uint32]$row.AdjacentBackgroundColor
+    if ($inside -eq [uint32]::MaxValue -or $adjacent -eq [uint32]::MaxValue) {
+      continue
+    }
+    $delta = [Math]::Max(
+      [Math]::Abs([int]($inside -band 0xFF) - [int]($adjacent -band 0xFF)),
+      [Math]::Max(
+        [Math]::Abs([int](($inside -shr 8) -band 0xFF) - [int](($adjacent -shr 8) -band 0xFF)),
+        [Math]::Abs([int](($inside -shr 16) -band 0xFF) - [int](($adjacent -shr 16) -band 0xFF))))
+    if ($delta -gt $maxDelta) {
+      $maxDelta = $delta
+    }
+  }
+  return $maxDelta
 }
 
 Send-WidgetMode -Command $menuViewCompact
@@ -145,6 +227,9 @@ $samples | Export-Csv -LiteralPath $samplesPath -NoTypeInformation -Encoding UTF
 
 $expandWidths = @($samples | Where-Object Phase -eq 'Expand' | Select-Object -ExpandProperty Width -Unique)
 $collapseWidths = @($samples | Where-Object Phase -eq 'Collapse' | Select-Object -ExpandProperty Width -Unique)
+$expandRows = @($samples | Where-Object Phase -eq 'Expand')
+$collapseRows = @($samples | Where-Object Phase -eq 'Collapse')
+$allSampleRows = @($samples | ForEach-Object { $_ })
 $intermediateExpand = @($expandWidths | Where-Object { $_ -gt $compactWidth -and $_ -lt $fullWidth })
 $intermediateCollapse = @($collapseWidths | Where-Object { $_ -gt $compactWidth -and $_ -lt $fullWidth })
 $reverseReturnWidths = @($samples | Where-Object Phase -eq 'ReverseReturn' | Select-Object -ExpandProperty Width)
@@ -164,6 +249,13 @@ $reverseMovesTowardCompact = $reverseReturnWidths.Count -gt 0 -and
                              $reverseReturnWidths -contains $compactWidth
 $reverseNoSnap = $reverseStartsBetweenEndpoints -and $reverseMovesTowardCompact
 $hasIntermediateFrames = $intermediateExpand.Count -gt 0 -and $intermediateCollapse.Count -gt 0
+$maxExpandWidthStep = Get-MaxWidthStep -Rows $expandRows
+$maxCollapseWidthStep = Get-MaxWidthStep -Rows $collapseRows
+$expandDurationMs = Get-EndpointDuration -Rows $expandRows -ExpectedWidth $fullWidth
+$collapseDurationMs = Get-EndpointDuration -Rows $collapseRows -ExpectedWidth $compactWidth
+$insideBackgroundColors = @($samples | ForEach-Object { Format-BackgroundColor -Color $_.InsideBackgroundColor } | Select-Object -Unique)
+$adjacentBackgroundColors = @($samples | ForEach-Object { Format-BackgroundColor -Color $_.AdjacentBackgroundColor } | Select-Object -Unique)
+$maxBackgroundColorDelta = Get-MaxBackgroundColorDelta -Rows $allSampleRows
 $passed = $fullReached -and $fullSettled -and $compactReached -and ($rightEdgeDrift -le 1) -and
           ((-not $animationEnabled) -or ($hasIntermediateFrames -and $reverseNoSnap))
 
@@ -176,7 +268,16 @@ $passed = $fullReached -and $fullSettled -and $compactReached -and ($rightEdgeDr
   ('CompactReached=' + $compactReached)
   ('IntermediateExpandWidths=' + ($intermediateExpand -join ','))
   ('IntermediateCollapseWidths=' + ($intermediateCollapse -join ','))
+  ('UniqueExpandFrameCount=' + $expandWidths.Count)
+  ('UniqueCollapseFrameCount=' + $collapseWidths.Count)
+  ('MaxExpandWidthStepPx=' + $maxExpandWidthStep)
+  ('MaxCollapseWidthStepPx=' + $maxCollapseWidthStep)
+  ('ExpandDurationMs=' + $expandDurationMs)
+  ('CollapseDurationMs=' + $collapseDurationMs)
   ('RightEdgeDriftPx=' + $rightEdgeDrift)
+  ('InsideBackgroundColors=' + ($insideBackgroundColors -join ','))
+  ('AdjacentBackgroundColors=' + ($adjacentBackgroundColors -join ','))
+  ('MaxBackgroundColorDelta=' + $maxBackgroundColorDelta)
   ('ReverseBeforeWidth=' + $beforeReverse.Width)
   ('ReverseAfterWidth=' + $afterReverse.Width)
   ('ReverseReturnWidths=' + (($reverseReturnWidths | Select-Object -Unique) -join ','))

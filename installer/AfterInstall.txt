@@ -1,0 +1,14 @@
+SnipTune 10 sudah terpasang.
+
+Untuk menampilkan widget pertama kali:
+
+1. Klik kanan area kosong pada taskbar.
+2. Pilih Toolbars.
+3. Pilih SnipTune 10.
+4. Jika Windows menampilkan konfirmasi, pilih Yes.
+
+Sesudah aktif, widget akan muncul di taskbar dan tetap dapat diaktifkan atau
+dinonaktifkan dari menu Toolbars yang sama.
+
+SnipTune 10 juga memasang prewarm per-user saat login supaya aktivasi pertama
+setelah laptop menyala terasa lebih cepat.

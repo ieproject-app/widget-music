@@ -151,14 +151,22 @@ namespace WidgetMusic.Verify {
 }
 
 $deskband = Read-Source 'WidgetMusicDeskband\src\Deskband.cpp'
+$deskbandResource = Read-Source 'WidgetMusicDeskband\WidgetMusicDeskband.rc'
 $accessibility = Read-Source 'WidgetMusicDeskband\src\Accessibility.h'
 $hostResource = Read-Source 'WidgetMusicHost\WidgetMusicHost.rc'
 $hostSource = Read-Source 'WidgetMusicHost\src\main.cpp'
+$readme = Read-Source 'README.md'
+$assetsReadme = Read-Source 'assets\README.md'
+$license = Read-Source 'LICENSE'
+$contributing = Read-Source 'CONTRIBUTING.md'
+$security = Read-Source 'SECURITY.md'
+$releaseNotes = Read-Source 'docs\releases\v1.0.5.md'
 $protocol = Read-Source 'shared\WidgetMusicProtocol.h'
 $visual = Read-Source 'shared\WidgetMusicVisual.h'
 $transitionInspector = Read-Source 'scripts\Inspect-WidgetMusicTransition.ps1'
 $package = Read-Source 'scripts\Package-WidgetMusic.cmd'
 $iconGenerator = Read-Source 'scripts\Generate-SnipGeekIcon.ps1'
+$prewarm = Read-Source 'scripts\Configure-WidgetMusicPrewarm.ps1'
 $restart = Read-Source 'scripts\Restart-WidgetMusicExplorer.ps1'
 $register = Read-Source 'scripts\Register-WidgetMusic.cmd'
 $install = Read-Source 'scripts\Install-WidgetMusic.cmd'
@@ -179,11 +187,24 @@ $dll = Join-Path $buildDir 'WidgetMusicDeskband.dll'
 $hostExe = Join-Path $buildDir 'WidgetMusicHost.exe'
 $distDll = Join-Path $distDir 'WidgetMusicDeskband.dll'
 $distHost = Join-Path $distDir 'WidgetMusicHost.exe'
-$installerExe = Join-Path $root 'out\dist\SnipTune10Setup-1.0.3-x64.exe'
+$installerExe = Join-Path $root 'out\dist\SnipTune10Setup-1.0.5-x64.exe'
 $sums = Join-Path $distDir 'SHA256SUMS.txt'
 
 Assert-File 'SnipGeek icon source' $iconSource
 Assert-File 'SnipGeek icon generator script' (Join-Path $root 'scripts\Generate-SnipGeekIcon.ps1')
+Assert-File 'MIT license' (Join-Path $root 'LICENSE')
+Assert-File 'contribution guide' (Join-Path $root 'CONTRIBUTING.md')
+Assert-File 'security policy' (Join-Path $root 'SECURITY.md')
+Assert-File 'assets readme' (Join-Path $root 'assets\README.md')
+Assert-File 'release notes 1.0.5' (Join-Path $root 'docs\releases\v1.0.5.md')
+Assert-File 'taskbar activation preview' (Join-Path $root 'preview\taskbar-sniptune.png')
+Assert-File 'compact preview screenshot' (Join-Path $root 'preview\ss1.png')
+Assert-File 'full preview screenshot' (Join-Path $root 'preview\ss2.png')
+Assert-File 'demo preview video' (Join-Path $root 'preview\demo-vidio-widget.mp4')
+Assert-File 'bug report issue template' (Join-Path $root '.github\ISSUE_TEMPLATE\bug_report.yml')
+Assert-File 'feature request issue template' (Join-Path $root '.github\ISSUE_TEMPLATE\feature_request.yml')
+Assert-File 'issue template config' (Join-Path $root '.github\ISSUE_TEMPLATE\config.yml')
+Assert-File 'pull request template' (Join-Path $root '.github\pull_request_template.md')
 Assert-File 'Deskband build DLL' $dll
 Assert-File 'Host build EXE' $hostExe
 Assert-File 'Packaged deskband DLL' $distDll
@@ -191,6 +212,9 @@ Assert-File 'Packaged host EXE' $distHost
 Assert-File 'Package checksum manifest' $sums
 Assert-File 'Package version marker' (Join-Path $distDir 'VERSION.txt')
 Assert-File 'Packaged restart helper' (Join-Path $distDir 'Restart-WidgetMusicExplorer.ps1')
+Assert-File 'Packaged prewarm helper' (Join-Path $distDir 'Configure-WidgetMusicPrewarm.ps1')
+Assert-Condition 'auto-enable helper source is removed' (-not (Test-Path -LiteralPath (Join-Path $root 'scripts\Enable-WidgetMusicTaskbar.ps1')))
+Assert-Condition 'auto-enable wrapper source is removed' (-not (Test-Path -LiteralPath (Join-Path $root 'scripts\Invoke-WidgetMusicTaskbarEnable.ps1')))
 Assert-SameHash 'Deskband DLL' $dll $distDll
 Assert-SameHash 'Host EXE' $hostExe $distHost
 
@@ -207,6 +231,8 @@ if (Test-Path -LiteralPath $distDir -PathType Container) {
   Assert-Condition 'runtime package stays below 1 MB' ($distBytes -lt 1MB)
   Assert-Condition 'runtime package excludes PDB files' (-not ($distFiles | Where-Object Extension -ieq '.pdb'))
   Assert-Condition 'runtime package excludes intermediate output' (-not (Test-Path -LiteralPath (Join-Path $distDir 'intermediate')))
+  Assert-Condition 'runtime package excludes legacy auto-enable helper' (-not ($distFiles | Where-Object Name -ieq 'Enable-WidgetMusicTaskbar.ps1'))
+  Assert-Condition 'runtime package excludes legacy auto-enable wrapper' (-not ($distFiles | Where-Object Name -ieq 'Invoke-WidgetMusicTaskbarEnable.ps1'))
 }
 
 if (Test-Path -LiteralPath $sums -PathType Leaf) {
@@ -220,10 +246,10 @@ if (Test-Path -LiteralPath $sums -PathType Leaf) {
 }
 
 if (Test-Path -LiteralPath $dll -PathType Leaf) {
-  Assert-Condition 'Deskband binary version is 1.0.3.0' ((Get-Item -LiteralPath $dll).VersionInfo.FileVersion -eq '1.0.3.0')
+  Assert-Condition 'Deskband binary version is 1.0.5.0' ((Get-Item -LiteralPath $dll).VersionInfo.FileVersion -eq '1.0.5.0')
 }
 if (Test-Path -LiteralPath $hostExe -PathType Leaf) {
-  Assert-Condition 'Host binary version is 1.0.3.0' ((Get-Item -LiteralPath $hostExe).VersionInfo.FileVersion -eq '1.0.3.0')
+  Assert-Condition 'Host binary version is 1.0.5.0' ((Get-Item -LiteralPath $hostExe).VersionInfo.FileVersion -eq '1.0.5.0')
   Assert-Condition 'Host build embeds a group icon resource' ((Get-GroupIconResources $hostExe).Count -gt 0)
 }
 if (Test-Path -LiteralPath $installerExe -PathType Leaf) {
@@ -234,6 +260,11 @@ Assert-Match 'full mode remains progress-first' $deskband '(?s)BuildPrimaryText\
 Assert-Match 'progress timer repaints text and seek union' $deskband '(?s)OnProgressTimer\(\).*?RECT dirty = _seekRc;.*?UnionRect\(&dirty,\s*&dirty,\s*&_textRc\)'
 Assert-Match 'taskbar surface sampling is preferred before DWM fallback' $deskband '(?s)COLORREF sampled = SampleAdjacentTaskbarColor\(hwnd,\s*CLR_INVALID\);.*?COLORREF dwmColor = GetTaskbarColorViaDWM\(\);.*?sampled != CLR_INVALID \? sampled'
 Assert-Match 'taskbar surface uses robust median color' $deskband 'widgetmusic::MedianColor\(samples,\s*fallback\)'
+Assert-Match 'taskbar fallback samples stable right edge' $deskband '\{wr\.right \+ 8,\s*y\}'
+Assert-NoMatch 'taskbar fallback avoids moving left-edge samples' $deskband '\{wr\.left -'
+Assert-Match 'taskbar native parent background is attempted when composited' $deskband '(?s)bool DrawNativeTaskbarBackground\(.*?DrawThemeParentBackground\(hwnd,\s*hdc,\s*&rc\)'
+Assert-Match 'taskbar native background rejects visually distant surfaces' $deskband 'MaxChannelDelta\(painted,\s*fallback\)\s*<=\s*kNativeBackgroundMaxChannelDelta'
+Assert-Match 'taskbar paint restores fallback when native surface is unsuitable' $deskband '(?s)FillSolidBackground\(mem,\s*repaintRc,\s*bgFill\);.*?!DrawNativeTaskbarBackground\(_hwnd,\s*mem,\s*repaintRc,\s*bgFill\).*?FillSolidBackground\(mem,\s*repaintRc,\s*bgFill\)'
 Assert-NoMatch 'dormant marquee path is removed' $deskband '(?i)marquee'
 Assert-NoMatch 'display-only progress bar has no seek hover affordance' $deskband '(?i)seekHover'
 Assert-Match 'title popup clamps to active monitor' $deskband '(?s)MonitorFromWindow\(_hwnd,\s*MONITOR_DEFAULTTONEAREST\).*?const int above.*?const int below'
@@ -249,9 +280,15 @@ Assert-Match 'compact/full resize uses smooth interpolation' $deskband 'Interpol
 Assert-Match 'compact/full resize honors reduced motion' $deskband 'SPI_GETCLIENTAREAANIMATION'
 Assert-Match 'compact/full resize reports intermediate frame width' $deskband '(?s)GetBandInfo\(.*?ReportedBandWidth\(\)'
 Assert-Match 'compact/full resize updates only this band' $deskband '(?s)NotifyBandInfoChanged\(\).*?bandId\.vt = VT_I4;.*?bandId\.lVal = static_cast<LONG>\(_bandId\);.*?&bandId'
+Assert-Match 'resize frame performs one notification and one geometry correction' $deskband '(?s)void CommitBandResizeFrame\(bool notifyExplorer\).*?if \(notifyExplorer\) NotifyBandInfoChanged\(\);.*?\(void\)EnsureCurrentBandGeometry\(true\);'
 Assert-Match 'compact/full resize timer is stopped during window teardown' $deskband '(?s)case WM_DESTROY:.*?StopBandResizeTimer\(\)'
 Assert-Match 'resize repaint reuses a capacity back buffer' $deskband '(?s)EnsureBackBuffer\(.*?_backW >= w.*?bufferW = max\(w,\s*kBandMaxWidth\)'
-Assert-Match 'resize avoids per-frame taskbar resampling' $deskband 'if \(force \|\| !IsBandResizeAnimating\(\)\) _cachedBgValid = false'
+Assert-Match 'resize avoids per-frame taskbar resampling' $deskband 'if \(force \|\| \(!IsBandResizeAnimating\(\) && !_processingBandResizeFrame\)\) _cachedBgValid = false'
+Assert-Match 'resize presents composited taskbar frames before continuing' $deskband 'if \(_compositionEnabled\) \(void\)::DwmFlush\(\)'
+Assert-Match 'cold activation uses short pipe delay' $deskband 'kStartupPipeDelayMs = 750'
+Assert-Match 'cold activation logs SetSite timing' $deskband 'BeginColdActivationTiming\(L"SetSite"\)'
+Assert-Match 'cold activation logs first paint timing' $deskband 'LogColdActivationTiming\(L"first paint"\)'
+Assert-Match 'deskband defers initial synchronous paint' $deskband '(?s)SetSite\(IUnknown\* pUnkSite\).*?::InvalidateRect\(_hwnd,\s*nullptr,\s*FALSE\);.*?SchedulePipeStart\(kStartupPipeDelayMs\)'
 Assert-Match 'MSAA exposes three virtual children' $accessibility 'kAccessibleButtonCount = 3'
 Assert-Match 'MSAA exposes push-button roles' $accessibility 'ROLE_SYSTEM_PUSHBUTTON'
 
@@ -271,12 +308,24 @@ Assert-Match 'host clamps state metadata' $hostSource 'ClampProtocolText'
 Assert-Match 'deskband clamps received metadata defensively' $deskband 'ClampProtocolText'
 Assert-Match 'deskband rotates logs above 512 KB' $deskband 'kMaxLogBytes = 512 \* 1024'
 Assert-Match 'host rotates logs above 512 KB' $hostSource 'kMaxLogBytes = 512 \* 1024'
+Assert-Match 'deskband resource version is 1.0.5.0' $deskbandResource 'VALUE "FileVersion", "1\.0\.5\.0"'
+Assert-Match 'host resource version is 1.0.5.0' $hostResource 'VALUE "FileVersion", "1\.0\.5\.0"'
+Assert-Match 'host supports prewarm CLI' $hostSource '--prewarm'
+Assert-Match 'host supports startup delay CLI' $hostSource '--startup-delay-ms'
+Assert-Match 'host default prewarm delay is 15 seconds' $hostSource 'kDefaultPrewarmStartupDelayMs = 15000'
+Assert-Match 'host uses a per-session single-instance mutex' $hostSource 'CreateMutexW\(nullptr,\s*FALSE,\s*name\.c_str\(\)\)'
+Assert-Match 'prewarm keeps host alive without a client' $hostSource 'PipeServer server\(stopEvent,\s*options\.prewarm\)'
+Assert-Match 'prewarm disables no-client timeout' $hostSource '_keepAliveWithoutClient \? INFINITE : kPipeNoClientTimeoutMs'
 
 Assert-Match 'host resource points to SnipGeek icon' $hostResource 'APPICON ICON "\.\.\\\\assets\\\\icons\\\\snipgeek\.ico"'
 Assert-Match 'icon generator defaults to SnipGeek asset paths' $iconGenerator 'snipgeek-512\.png'
 Assert-Match 'icon generator includes 256 px icon frame' $iconGenerator '256'
 Assert-Match 'packager copies scoped Explorer restart helper' $package 'Restart-WidgetMusicExplorer\.ps1'
+Assert-Match 'packager copies prewarm helper' $package 'Configure-WidgetMusicPrewarm\.ps1'
+Assert-NoMatch 'packager excludes removed auto-enable helper' $package 'Enable-WidgetMusicTaskbar\.ps1'
+Assert-NoMatch 'packager excludes removed auto-enable wrapper' $package 'Invoke-WidgetMusicTaskbarEnable\.ps1'
 Assert-Match 'packager writes VERSION.txt' $package 'VERSION\.txt'
+Assert-Match 'packager writes 1.0.5.0 marker' $package '1\.0\.5\.0'
 Assert-Match 'packager writes SHA256SUMS.txt' $package 'SHA256SUMS\.txt'
 Assert-Match 'deskband Release links static VC runtime' $deskbandProject '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
 Assert-Match 'host Release links static VC runtime' $hostProjectFile '(?s)Release\|x64.*?<RuntimeLibrary>MultiThreaded</RuntimeLibrary>'
@@ -284,10 +333,18 @@ Assert-Match 'installer targets per-user LocalAppData' $installer 'DefaultDirNam
 Assert-Match 'installer links publisher to SnipGeek website' $installer 'AppPublisherURL=https://snipgeek\.com'
 Assert-Match 'installer is limited to x64 Windows' $installer 'ArchitecturesAllowed=x64os'
 Assert-Match 'installer uses SnipGeek setup icon' $installer 'SetupIconFile=\.\.\\assets\\icons\\snipgeek\.ico'
-Assert-Match 'installer registers deskband after install' $installer 'Register-WidgetMusic\.cmd"; Parameters: "restart auto"'
+Assert-Match 'installer version is 1.0.5' $installer '#define MyAppVersion "1\.0\.5"'
+Assert-Match 'installer binary metadata version is 1.0.5.0' $installer 'VersionInfoVersion=1\.0\.5\.0'
+Assert-Match 'installer registers deskband after install without auto-enable' $installer 'Register-WidgetMusic\.cmd"; Parameters: "restart";'
+Assert-NoMatch 'installer contains no automatic taskbar enable flag' $installer 'restart auto'
+Assert-Match 'installer shows manual activation guide' $installer 'InfoAfterFile=AfterInstall\.txt'
+Assert-Match 'installer cleans legacy auto-enable helper during update' $installer '\{app\}\\Enable-WidgetMusicTaskbar\.ps1'
+Assert-Match 'installer cleans legacy auto-enable wrapper during update' $installer '\{app\}\\Invoke-WidgetMusicTaskbarEnable\.ps1'
+Assert-File 'installer manual activation guide' (Join-Path $root 'installer\AfterInstall.txt')
 Assert-Match 'installer unregisters deskband during uninstall' $installer 'Unregister-WidgetMusic\.cmd"; Parameters: "restart"'
 Assert-Match 'installer unregisters existing install before update' $installer '(?s)PrepareToInstall.*?Unregister-WidgetMusic\.cmd.*?Exec\(UnregisterScript,\s*''restart'''
 Assert-Match 'installer output filename is stable' $installer 'OutputBaseFilename=SnipTune10Setup-\{#MyAppVersion\}-x64'
+Assert-Match 'installer build reports 1.0.5 output' $buildInstaller 'SnipTune10Setup-1\.0\.5-x64\.exe'
 Assert-Match 'installer build invokes runtime packager' $buildInstaller 'Package-WidgetMusic\.cmd'
 Assert-Match 'installer build checks runtime dependencies' $buildInstaller 'Check-RuntimeDependencies\.ps1'
 Assert-Match 'installer build reports missing Inno Setup' $buildInstaller 'Inno Setup 6 was not found'
@@ -301,7 +358,32 @@ Assert-Match 'release workflow installs Inno Setup' $releaseWorkflow 'choco inst
 Assert-Match 'release workflow builds installer' $releaseWorkflow 'Build-Installer\.cmd Release'
 Assert-Match 'release workflow creates runtime zip' $releaseWorkflow 'SnipTune10-\$version-runtime\.zip'
 Assert-Match 'release workflow creates checksum asset' $releaseWorkflow 'SHA256SUMS\.txt'
-Assert-Match 'release workflow publishes draft release' $releaseWorkflow '(?s)gh release create.*?--draft'
+Assert-Match 'release workflow creates GitHub release' $releaseWorkflow "(?s)'release',\s*'create'"
+Assert-Match 'release workflow publishes draft release' $releaseWorkflow "'--draft'"
+Assert-Match 'release workflow can use curated notes file' $releaseWorkflow 'docs\\releases\\v\$version\.md'
+Assert-Match 'README links release installer 1.0.5' $readme 'SnipTune10Setup-1\.0\.5-x64\.exe'
+Assert-Match 'README documents taskbar toolbar activation' $readme 'Toolbars` > `SnipTune 10'
+Assert-Match 'README shows taskbar activation preview' $readme 'preview/taskbar-sniptune\.png'
+Assert-Match 'README shows compact screenshot' $readme 'preview/ss1\.png'
+Assert-Match 'README shows full screenshot' $readme 'preview/ss2\.png'
+Assert-Match 'README links demo video' $readme 'preview/demo-vidio-widget\.mp4'
+Assert-Match 'README links SnipGeek website' $readme 'https://snipgeek\.com'
+Assert-Match 'README links GitHub repo' $readme 'https://github\.com/ieproject-app/widget-music'
+Assert-Match 'license is MIT' $license 'MIT License'
+Assert-Match 'license names SnipGeek' $license 'Copyright \(c\) 2026 SnipGeek'
+Assert-Match 'contributing guide requires verifier' $contributing 'Verify-WidgetMusicGoal\.ps1 Release'
+Assert-Match 'security policy avoids public issues' $security 'do not report security-sensitive issues in public GitHub Issues'
+Assert-Match 'assets readme links GitHub repo' $assetsReadme 'https://github\.com/ieproject-app/widget-music'
+Assert-Match 'assets readme links SnipGeek website' $assetsReadme 'https://snipgeek\.com'
+Assert-Match 'release notes mention prewarm' $releaseNotes '(?i)prewarm'
+Assert-Match 'prewarm helper writes per-user Run entry' $prewarm 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+Assert-Match 'prewarm helper uses SnipTune10Prewarm value' $prewarm 'SnipTune10Prewarm'
+Assert-Match 'prewarm helper starts host with prewarm CLI' $prewarm '--prewarm'
+Assert-Match 'prewarm helper writes startup delay CLI' $prewarm '--startup-delay-ms=\{1\}'
+Assert-Match 'install script enables prewarm' $install '(?s)Configure-WidgetMusicPrewarm\.ps1.*?-Action Install'
+Assert-Match 'register script enables prewarm' $register '(?s)Configure-WidgetMusicPrewarm\.ps1.*?-Action Install'
+Assert-Match 'uninstall script disables prewarm' $uninstall '(?s)Configure-WidgetMusicPrewarm\.ps1.*?-Action Uninstall'
+Assert-Match 'unregister script disables prewarm' $unregister '(?s)Configure-WidgetMusicPrewarm\.ps1.*?-Action Uninstall'
 Assert-Match 'restart helper scopes Explorer operations by session' $restart '(?s)\$sessionId = \(Get-Process -Id \$PID\)\.SessionId.*?Where-Object \{ \$_.SessionId -eq \$sessionId \}'
 Assert-Match 'restart helper scopes host shutdown by session' $restart 'Stop-SessionProcess -Name ''WidgetMusicHost'''
 foreach ($script in @(
@@ -312,6 +394,12 @@ foreach ($script in @(
   )) {
   Assert-Match "$($script.Name) uses scoped restart helper" $script.Text 'Restart-WidgetMusicExplorer\.ps1'
   Assert-NoMatch "$($script.Name) contains no global Explorer stop" $script.Text 'Stop-Process\s+-Name\s+explorer'
+}
+foreach ($script in @(
+    @{ Name = 'register'; Text = $register },
+    @{ Name = 'install'; Text = $install }
+  )) {
+  Assert-NoMatch "$($script.Name) contains no taskbar auto-enable mode" $script.Text '(?i)auto-enable|skipenable|ENABLE_MODE|ShowDeskBand'
 }
 
 Assert-File '.gitattributes' (Join-Path $root '.gitattributes')
@@ -324,6 +412,10 @@ Assert-Match 'transition inspector samples widget rectangles' $transitionInspect
 Assert-Match 'transition inspector verifies right-edge stability' $transitionInspector 'RightEdgeDriftPx'
 Assert-Match 'transition inspector verifies settled full endpoint' $transitionInspector 'FullSettled'
 Assert-Match 'transition inspector exercises mid-flight reversal' $transitionInspector 'ReverseNoSnap'
+Assert-Match 'transition inspector reports unique expand frame count' $transitionInspector 'UniqueExpandFrameCount'
+Assert-Match 'transition inspector reports largest expand step' $transitionInspector 'MaxExpandWidthStepPx'
+Assert-Match 'transition inspector reports expand duration' $transitionInspector 'ExpandDurationMs'
+Assert-Match 'transition inspector observes background colors' $transitionInspector 'BackgroundColor'
 
 if ($failures.Count -gt 0) {
   Write-Host ''

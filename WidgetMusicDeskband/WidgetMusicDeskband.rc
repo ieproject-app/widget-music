@@ -1,8 +1,8 @@
 #include <windows.h>
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,3,0
- PRODUCTVERSION 1,0,3,0
+ FILEVERSION 1,0,5,0
+ PRODUCTVERSION 1,0,5,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -19,11 +19,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "SnipGeek"
       VALUE "FileDescription", "SnipTune 10 Windows 10 DeskBand"
-      VALUE "FileVersion", "1.0.3.0"
+      VALUE "FileVersion", "1.0.5.0"
       VALUE "InternalName", "WidgetMusicDeskband.dll"
       VALUE "OriginalFilename", "WidgetMusicDeskband.dll"
       VALUE "ProductName", "SnipTune 10"
-      VALUE "ProductVersion", "1.0.3.0"
+      VALUE "ProductVersion", "1.0.5.0"
     END
   END
   BLOCK "VarFileInfo"

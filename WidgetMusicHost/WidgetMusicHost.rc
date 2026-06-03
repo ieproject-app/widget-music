@@ -3,8 +3,8 @@
 APPICON ICON "..\\assets\\icons\\snipgeek.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 1,0,3,0
- PRODUCTVERSION 1,0,3,0
+ FILEVERSION 1,0,5,0
+ PRODUCTVERSION 1,0,5,0
  FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
  FILEFLAGS VS_FF_DEBUG
@@ -21,11 +21,11 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "SnipGeek"
       VALUE "FileDescription", "SnipTune 10 media session host"
-      VALUE "FileVersion", "1.0.3.0"
+      VALUE "FileVersion", "1.0.5.0"
       VALUE "InternalName", "WidgetMusicHost.exe"
       VALUE "OriginalFilename", "WidgetMusicHost.exe"
       VALUE "ProductName", "SnipTune 10"
-      VALUE "ProductVersion", "1.0.3.0"
+      VALUE "ProductVersion", "1.0.5.0"
     END
   END
   BLOCK "VarFileInfo"
