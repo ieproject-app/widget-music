@@ -4,6 +4,30 @@ SnipTune 10 is a native Windows 10 taskbar music widget by [SnipGeek](https://sn
 
 ![Activate SnipTune 10 from the taskbar toolbar menu](preview/taskbar-sniptune.png)
 
+## Why It Matters
+
+SnipTune 10 is built for users who keep media running while they work. Instead of switching to a separate app window or relying on overlay widgets, it keeps play, pause, next, and previous controls in the taskbar where they are easy to reach.
+
+This is especially useful for:
+
+* people playing music from Spotify, Chrome, Edge, or Media Player on Windows 10
+* users who want a lightweight native taskbar control instead of an overlay
+* users who need keyboard and screen reader support for basic media control
+
+## Common Use Cases
+
+* Control music while coding, writing, or browsing without leaving the current app.
+* Keep playback controls visible in the taskbar during long work sessions.
+* Use the compact mode for a minimal footprint or the full mode for progress visibility.
+* Provide a native-feeling media control option on Windows 10 systems where DeskBand support is still available.
+
+## Project Status
+
+* Public open source project under the MIT License.
+* Actively maintained with public release notes and installer flow.
+* Current public release: `v1.0.5`.
+* Security-sensitive areas are documented in `SECURITY.md` and the release/update notes.
+
 ## Install
 
 For most users, use the installer from GitHub Releases:
@@ -40,6 +64,7 @@ Demo video: [preview/demo-vidio-widget.mp4](preview/demo-vidio-widget.mp4)
 * Keyboard support: `Left`, `Right`, `Enter`, and `Space`.
 * Screen reader support through MSAA virtual buttons.
 * Per-user installer and uninstall flow.
+* Documented release and update process for repeatable maintenance.
 
 ## Requirements
 
